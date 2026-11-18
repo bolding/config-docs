@@ -1,12 +1,10 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Nested setups · pygetm-config</title>
-<meta name="description" content="Nested setups">
-<link rel="icon" href="./assets/logo_stacked.png">
-<link rel="stylesheet" href="./assets/style.css"><link rel="stylesheet" href="./assets/code.css"></head>
+<title>Nested setups</title><meta name="description" content="pygetm-config: Nested setups">
+<link rel="icon" href="theme/logo_stacked.png">
+<link rel="stylesheet" href="theme/style.css"><link rel="stylesheet" href="theme/code.css"></head>
 <body>
-<header class="topbar"><div class="topin"><a class="brand" href="./index.html"><img src="./assets/logo_wide.png" alt="Bolding &amp; Bruggeman"><span>pygetm-config</span></a>
-<nav aria-label="Sections"><a href="index.html">Overview</a><a href="getting-started.html">Getting started</a><a href="full-picture.html">The full picture</a><a href="yaml-vs-python.html">YAML or Python</a><a href="providers.html">Providers</a><a href="nesting.html" aria-current="page">Nested setups</a><a href="examples.html">Examples</a></nav></div></header>
+<header class="topbar"><div class="topin"><a class="brand" href="index.html"><img src="theme/logo_wide.png" alt="Bolding &amp; Bruggeman"><span>pygetm-config</span></a><nav aria-label="Site"><a href="index.html">Overview</a><a href="getting-started.html">Getting started</a><a href="full-picture.html">The full picture</a><a href="yaml-vs-python.html">YAML or Python</a><a href="providers.html">Providers</a><a href="nesting.html" aria-current="page">Nested setups</a><a href="examples.html">Examples</a></nav></div></header>
 <section class="band"><div class="bandin"><h1>Nested setups</h1></div></section>
 <main><div class="layout"><aside class="side"><h2>On this page</h2><ul><li><a href="#the-master-file">The master file</a></li><li><a href="#domains-and-depths">Domains and depths</a></li><li><a href="#open-boundaries">Open boundaries</a></li><li><a href="#time-steps-3d-and-restarts">Time steps, 3D and restarts</a></li><li><a href="#output">Output</a></li><li><a href="#running-pygetm-config-nest">Running pygetm-config nest</a></li><li><a href="#examples">Examples</a></li></ul></aside><article class="doc"><h1 id="nested-setups">Nested setups</h1>
 <p><code>pygetm-config nest</code> builds a nested setup: several pyGETM models (levels) that run together with the two-way nesting
@@ -177,8 +175,5 @@ options and their values, the rules above.</p>
 (9 levels, children with their own open boundaries; <code>--cores N</code> takes the processes per level from its
 <code>nesting-balance</code>), <code>IDEAL/config/pygetm-config</code> (3 Cartesian levels, the layout in km). Their options add ERA5
 forcing and, in 3D, initial temperature and salinity from WOA or CMEMS through a pygetm-config provider.</p></article></div></main>
-<footer class="foot"><div class="footin"><img src="./assets/logo_stacked.png" alt="Bolding &amp; Bruggeman">
-<div><p>Bolding &amp; Bruggeman · <a href="https://www.bolding-bruggeman.com">www.bolding-bruggeman.com</a> ·
-<a href="https://bolding.github.io/ocean-docs/">ocean-* documentation</a> · <a href="https://bolding.github.io/nesting-docs/">pyGETM nesting</a></p>
-<p>Generated from the pygetm-config documentation on 18 November 2026. pygetm-config itself is not public yet.</p></div></div></footer>
+<footer class="foot"><div class="footin"><img src="theme/logo_stacked.png" alt="Bolding &amp; Bruggeman"><div><p>Bolding &amp; Bruggeman · <a href="https://www.bolding-bruggeman.com">www.bolding-bruggeman.com</a></p><p class="bb-related" data-self="config-docs"></p><p class="note">Generated from the pygetm-config documentation on 18 November 2026. pygetm-config itself is not public yet.</p></div></div></footer><script src="theme/related.js" defer></script>
 </body></html>
