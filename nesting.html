@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Nested setups · pygetm-config</title>
+<meta name="description" content="Nested setups">
+<link rel="icon" href="./assets/logo_stacked.png">
+<link rel="stylesheet" href="./assets/style.css"><link rel="stylesheet" href="./assets/code.css"></head>
+<body>
+<header class="topbar"><div class="topin"><a class="brand" href="./index.html"><img src="./assets/logo_wide.png" alt="Bolding &amp; Bruggeman"><span>pygetm-config</span></a>
+<nav aria-label="Sections"><a href="index.html">Overview</a><a href="getting-started.html">Getting started</a><a href="full-picture.html">The full picture</a><a href="yaml-vs-python.html">YAML or Python</a><a href="providers.html">Providers</a><a href="nesting.html" aria-current="page">Nested setups</a><a href="examples.html">Examples</a></nav></div></header>
+<section class="band"><div class="bandin"><h1>Nested setups</h1></div></section>
+<main><div class="layout"><aside class="side"><h2>On this page</h2><ul><li><a href="#the-master-file">The master file</a></li><li><a href="#domains-and-depths">Domains and depths</a></li><li><a href="#open-boundaries">Open boundaries</a></li><li><a href="#time-steps-3d-and-restarts">Time steps, 3D and restarts</a></li><li><a href="#output">Output</a></li><li><a href="#running-pygetm-config-nest">Running pygetm-config nest</a></li><li><a href="#examples">Examples</a></li></ul></aside><article class="doc"><h1 id="nested-setups">Nested setups</h1>
+<p><code>pygetm-config nest</code> builds a nested setup: several pyGETM models (levels) that run together with the two-way nesting
+of the pyGETM fork (bolding/pygetm, branch <code>nesting-mpmd</code>, package <code>pygetm.nesting</code>). A root covers the whole region,
+children refine rectangular windows of their parent (by an integer ratio, with an integer time ratio), grandchildren
+refine their children, and so on. Every level is an ordinary pyGETM simulation with its own processes; they are
+launched as one MPI job, one component per level.</p>
+<p>This is opt-in: a single-model configuration is unaffected. The scripts need the fork installed; <code>--configs-only</code>
+writes only the level configurations and works without pyGETM.</p>
+<h2 id="the-master-file">The master file</h2>
+<p>One YAML file describes the whole nest:</p>
+<div class="codehilite"><pre><span></span><code><span class="nt">nesting</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">base</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">base.yaml</span><span class="w">                </span><span class="c1"># an ordinary pygetm-config file every level starts from (relative to this file)</span>
+<span class="w">  </span><span class="nt">layout</span><span class="p">:</span><span class="w">                        </span><span class="c1"># the levels&#39; geometry (pygetm.nesting&#39;s layout format)</span>
+<span class="w">    </span><span class="nt">root</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">nx</span><span class="p">:</span><span class="w"> </span><span class="nv">255</span><span class="p p-Indicator">,</span><span class="nt"> ny</span><span class="p">:</span><span class="w"> </span><span class="nv">196</span><span class="p p-Indicator">,</span><span class="nt"> lon0</span><span class="p">:</span><span class="w"> </span><span class="nv">-16.0</span><span class="p p-Indicator">,</span><span class="nt"> lat0</span><span class="p">:</span><span class="w"> </span><span class="nv">43.0</span><span class="p p-Indicator">,</span><span class="nt"> dlon</span><span class="p">:</span><span class="w"> </span><span class="nv">0.1</span><span class="p p-Indicator">,</span><span class="nt"> dlat</span><span class="p">:</span><span class="w"> </span><span class="nv">0.06</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="nt">fine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">parent</span><span class="p">:</span><span class="w"> </span><span class="nv">root</span><span class="p p-Indicator">,</span><span class="nt"> istart</span><span class="p">:</span><span class="w"> </span><span class="nv">120</span><span class="p p-Indicator">,</span><span class="nt"> istop</span><span class="p">:</span><span class="w"> </span><span class="nv">180</span><span class="p p-Indicator">,</span><span class="nt"> jstart</span><span class="p">:</span><span class="w"> </span><span class="nv">90</span><span class="p p-Indicator">,</span><span class="nt"> jstop</span><span class="p">:</span><span class="w"> </span><span class="nv">140</span><span class="p p-Indicator">,</span><span class="nt"> ratio</span><span class="p">:</span><span class="w"> </span><span class="nv">3</span><span class="p p-Indicator">,</span>
+<span class="nt">           active</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">seed</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">8.5</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">55.6</span><span class="p p-Indicator">]}}</span>
+<span class="w">  </span><span class="nt">config</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">interface_min_depth</span><span class="p">:</span><span class="w"> </span><span class="nv">2.0</span><span class="p p-Indicator">}</span>
+<span class="nt">levels</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">root</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">nesting</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">processes</span><span class="p">:</span><span class="w"> </span><span class="nv">4</span><span class="p p-Indicator">,</span><span class="nt"> open_boundaries</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">type_2d</span><span class="p">:</span><span class="w"> </span><span class="nv">FLATHER_TRANSPORT</span><span class="p p-Indicator">,</span><span class="nt"> type_3d</span><span class="p">:</span><span class="w"> </span><span class="nv">ZERO_GRADIENT</span><span class="p p-Indicator">}}</span>
+<span class="w">    </span><span class="nt">data_assignments</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">...</span><span class="p p-Indicator">]</span><span class="w">      </span><span class="c1"># e.g. TPXO at the open boundaries</span>
+<span class="w">  </span><span class="nt">fine</span><span class="p">:</span><span class="w">                          </span><span class="c1"># only what differs from the base</span>
+<span class="w">    </span><span class="nt">domain</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">BathymetryFile</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;${BATHYMETRY_FOLDER}/fine_bathymetry.nc&quot;</span><span class="p p-Indicator">}}</span>
+<span class="w">    </span><span class="nt">runtime</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">timestep</span><span class="p">:</span><span class="w"> </span><span class="nv">6.0</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="nt">nesting</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">processes</span><span class="p">:</span><span class="w"> </span><span class="nv">2</span><span class="p p-Indicator">,</span><span class="nt"> sponge_width</span><span class="p">:</span><span class="w"> </span><span class="nv">1.0</span><span class="p p-Indicator">,</span><span class="nt"> min_depth</span><span class="p">:</span><span class="w"> </span><span class="nv">2.0</span><span class="p p-Indicator">}</span>
+</code></pre></div>
+
+<p><img alt="What pygetm-config nest makes from a master file" src="fig/nesting_files.png" /></p>
+<p>A level's configuration is the base with the level's overrides merged in: mappings merge key by key, lists and values
+replace (so a <code>data_assignments</code> list in a level replaces the base's whole list), and <code>null</code> removes a key. The level's
+<code>nesting:</code> block holds options of the coupling and of the level's set-up (below); it is not part of its pyGETM
+configuration.</p>
+<p><code>levels.&lt;name&gt;.enabled: false</code> leaves a level out, with all levels below it; its parent then computes the window
+itself. The root cannot be left out.</p>
+<h3 id="the-layout">The layout</h3>
+<p><code>nesting.layout</code> is pygetm.nesting's layout: per level <code>nx</code>, <code>ny</code>, <code>lon0</code>, <code>lat0</code>, <code>dlon</code>, <code>dlat</code> (the root), or <code>parent</code>,
+<code>istart</code>, <code>istop</code>, <code>jstart</code>, <code>jstop</code>, <code>ratio</code> and optionally <code>time_ratio</code> (default: the ratio) and <code>active</code> (the active
+region: seeds and barriers) for a child. Optional per child:</p>
+<p><img alt="A child in its parent" src="fig/nesting_layout.png" /></p>
+<p><em>A child (ratio 3) in its parent: the window, the active region grown from a seed and cut by a barrier, the parent's
+hole under it, the child's ring of cells set from the parent, and the interface faces where the fluxes are matched.
+Drawn with pygetm.nesting's own geometry (<code>docs/figures/make_nesting_figures.py</code>).</em></p>
+<ul>
+<li><code>grid</code>: a curvilinear level, a <code>.npz</code> file with its supergrid <code>x</code>, <code>y</code> (window and band, in the layout's units), the
+  path relative to the master file. Near its interface it must coincide with the refined parent grid, and the parent
+  must be land under its interior beyond that band (pygetm.nesting checks both at start-up).</li>
+<li><code>overhang: [w, e, s, n]</code>: a curvilinear level that continues beyond its window (e.g. out of the root).</li>
+</ul>
+<p><img alt="A curvilinear child with an overhang" src="fig/nesting_curvilinear.png" /></p>
+<p><em>A curvilinear child: near its interface (the conforming band) its grid is the refined parent grid; inside it is free,
+over parent land; with an overhang it continues beyond the root's edge.</em></p>
+<p><code>nesting.config</code> holds the layout's settings: <code>interface_min_depth</code> (interfaces kept out of water that floods and dries),
+and for Cartesian levels <code>coriolis</code> and <code>xy_unit</code> (below).</p>
+<h3 id="a-levels-nesting-block">A level's <code>nesting:</code> block</h3>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>processes</code></td>
+<td>MPI processes of the level (default 1)</td>
+</tr>
+<tr>
+<td><code>min_depth</code></td>
+<td>cells shallower than this are land (as <code>Domain.mask_shallow</code>), before the nesting's consistency</td>
+</tr>
+<tr>
+<td><code>limit_velocity_depth</code></td>
+<td><code>Domain.limit_velocity_depth()</code> on the level's domain</td>
+</tr>
+<tr>
+<td><code>open_boundaries</code></td>
+<td>open boundaries along every wet stretch of the level's outer edges (below)</td>
+</tr>
+<tr>
+<td><code>sponge_width</code>, <code>sponge_alpha</code></td>
+<td>the damping inside a child's interface (Nested2D); needed when a child sub-steps</td>
+</tr>
+<tr>
+<td><code>tracers</code></td>
+<td>the 3D tracers exchanged (default: temperature, salinity and FABM's pelagic state)</td>
+</tr>
+<tr>
+<td><code>remap_scheme</code></td>
+<td><code>ppm</code> (default) or <code>pcm</code>: the vertical remap at this child's interface</td>
+</tr>
+<tr>
+<td><code>ring_slopes</code>, <code>ring_time</code></td>
+<td>the 3D ring linear within each parent cell; <code>hold</code> or <code>extrapolate</code> over a child's 3D sub-steps (the same on all levels)</td>
+</tr>
+</tbody>
+</table>
+<h2 id="domains-and-depths">Domains and depths</h2>
+<p>Each level's grid is the layout's; only its depth comes from the configuration, from its <code>domain: BathymetryFile</code>, the
+one domain method of a nested level:</p>
+<ul>
+<li><strong>spherical levels</strong>: <code>lon_variable</code>, <code>lat_variable</code>;</li>
+<li><strong>Cartesian levels</strong>: <code>x_variable</code>, <code>y_variable</code> in metres. The layout may use other units: <code>nesting.config.xy_unit</code>
+  gives metres per layout unit (e.g. 1000 for a layout in km). <code>nesting.config.coriolis</code> is the Coriolis parameter of
+  the f-plane (required; 0 for none).</li>
+</ul>
+<p>All levels are of one kind. The file must lie on the level's grid; a file larger by the same number of cells on every
+side (ocean-prep's level files carry a band of 2 cells) is cut. The depths are read by pygetm.nesting's own reader
+(<code>pygetm.nesting.bathymetry.read_level_depth</code>) and made consistent between the levels when the run starts.</p>
+<h2 id="open-boundaries">Open boundaries</h2>
+<p>A level's <code>nesting: {open_boundaries: {type_2d: ..., type_3d: ..., sides: ...}}</code> adds open boundaries when the run
+starts, along every wet stretch of its outer edges: the root's edges, and a child's sides that lie on the root's edge
+(its window reaching it); without the cells the level does not compute (a parent's hole, the part of its edge a child
+owns). <code>type_2d</code> and <code>type_3d</code> are names of pyGETM's boundary types (<code>FLATHER_TRANSPORT</code>, <code>FLATHER_ELEV</code>, <code>CLAMPED</code>,
+<code>ZERO_GRADIENT</code>, <code>SPONGE</code>); <code>sides</code> (optional, e.g. <code>W</code>) opens only those edges. Their forcing comes from the level's
+<code>data_assignments</code> as for a single model (e.g. TPXO).</p>
+<p><img alt="Run-time open boundaries" src="fig/nesting_boundaries.png" /></p>
+<p><em>Run-time open boundaries along every wet stretch of the edges (land interrupts them, corners are left out where two
+open sides meet). Left: a child on the root's east edge owns that part; right: the same child left out.</em></p>
+<p>Because the boundaries follow from the levels in the run, a child that owns part of the root's edge can be left out
+with <code>enabled: false</code>: the root takes over its part.</p>
+<p>Alternatively a level may give its boundaries as an ordinary <code>open_boundaries</code> list (indices on its own grid; a child's
+must not be inherited from the base). Then a child that owns part of the root's edge cannot be left out, since the
+parent's list was made with it.</p>
+<h2 id="time-steps-3d-and-restarts">Time steps, 3D and restarts</h2>
+<ul>
+<li><code>runtime.timestep</code> is a number of seconds: the level's largest stable step. The nesting picks the root step from
+  all levels (a simple fraction of the hour) and gives each level the root step divided by its steps per root step.</li>
+<li>In 3D a child's 3D step must be its parent's divided by a whole number: its <code>split_factor</code> must divide its parent's
+  split factor times its time ratio (checked).</li>
+<li>All levels share one run type and the 3D ring options.</li>
+<li>Restart files are per level: <code>--save-restart restart.nc</code> writes <code>restart_&lt;level&gt;.nc</code> (or put <code>{level}</code> in the path).
+  Snapshots are taken at times (<code>save_restart_interval_units</code> in time units, not steps). A restart written with
+  another set of levels, windows or ratios is refused.</li>
+<li><code>--stop</code> must fall on a whole root step.</li>
+</ul>
+<h2 id="output">Output</h2>
+<p>Every level writes into its own folder: <code>&lt;output.folder&gt;/&lt;level&gt;</code> (or <code>&lt;level&gt;</code> in the run directory if the base sets
+no folder), unless its overrides set <code>output.folder</code> themselves. Two levels writing into one folder are refused.</p>
+<h2 id="running-pygetm-config-nest">Running <code>pygetm-config nest</code></h2>
+<div class="codehilite"><pre><span></span><code>pygetm-config<span class="w"> </span>nest<span class="w"> </span>master.yaml<span class="w"> </span>--out<span class="w"> </span>RUN<span class="w"> </span><span class="o">[</span>--validate<span class="o">]</span><span class="w"> </span><span class="o">[</span>--configs-only<span class="o">]</span>
+<span class="w">    </span><span class="o">[</span>--python<span class="w"> </span>python3<span class="o">]</span><span class="w"> </span><span class="o">[</span>--mpiexec<span class="w"> </span>mpiexec<span class="o">]</span><span class="w"> </span><span class="o">[</span>--bind<span class="w"> </span>core<span class="p">|</span>hwthread<span class="w"> </span><span class="o">[</span>--mpi<span class="w"> </span>mpich<span class="p">|</span>openmpi<span class="o">]]</span>
+<span class="w">    </span><span class="o">[</span>--slurm<span class="w"> </span>--partition<span class="w"> </span>P<span class="w"> </span>--time<span class="w"> </span><span class="m">02</span>:00:00<span class="w"> </span>--nodes<span class="w"> </span>N<span class="w"> </span>--account<span class="w"> </span>A<span class="w"> </span>--setup<span class="w"> </span><span class="s1">&#39;conda activate pygetm-nesting&#39;</span><span class="o">]</span>
+</code></pre></div>
+
+<p>writes into <code>RUN</code>:</p>
+<ul>
+<li><code>&lt;stem&gt;_&lt;level&gt;.yaml</code>: every level's merged configuration, a complete pygetm-config file (<code>pygetm-config validate</code>
+  works on it); generated: edit the master;</li>
+<li><code>&lt;stem&gt;_layout.yaml</code>: the layout (with a curvilinear level's grid file copied next to it);</li>
+<li><code>generated_&lt;stem&gt;_&lt;level&gt;.py</code> (+ <code>_config.yaml</code>, <code>_utils.py</code>): each level's run script;</li>
+<li><code>run_&lt;stem&gt;.sh</code>: the launch, one <code>mpiexec</code> component per level; its arguments go to every level's script
+  (<code>--stop</code>, <code>--save-restart</code>, <code>--data-root NAME=VALUE</code>, ...);</li>
+<li>with <code>--slurm</code>: <code>run_&lt;stem&gt;.sbatch</code>, a Slurm job starting the levels with <code>srun --multi-prog</code>. Submit it from the run
+  directory with the scripts' arguments: <code>cd RUN &amp;&amp; sbatch run_&lt;stem&gt;.sbatch --stop 2020-01-02T00:00:00</code>.</li>
+</ul>
+<p><code>--bind core</code> (or <code>hwthread</code>) pins every level to its own block of cores, in both scripts (<code>--mpi</code> gives mpiexec's
+flags). The launch commands come from the fork's <code>pygetm.nesting.launch</code>, which pygetm-nesting's <code>nesting-balance</code>
+uses too.</p>
+<p>The launch scripts change to the run directory first: give <code>--data-root</code> folders as absolute paths
+(<code>OUTPUT_FOLDER=$PWD/RUN/out</code>).</p>
+<p><code>nest</code> checks the master before writing anything: the layout (pygetm.nesting's own checks), the levels against it, the
+options and their values, the rules above.</p>
+<h2 id="examples">Examples</h2>
+<p>pygetm-nesting (bolding/pygetm-nesting, not public yet) generates the masters of its setups with
+<code>pygetm_nesting.config_master</code>:
+<code>NEAB/config/pygetm-config</code> (5 spherical levels; bit-identical to NEAB's own nested models), <code>DKm/config/pygetm-config</code>
+(9 levels, children with their own open boundaries; <code>--cores N</code> takes the processes per level from its
+<code>nesting-balance</code>), <code>IDEAL/config/pygetm-config</code> (3 Cartesian levels, the layout in km). Their options add ERA5
+forcing and, in 3D, initial temperature and salinity from WOA or CMEMS through a pygetm-config provider.</p></article></div></main>
+<footer class="foot"><div class="footin"><img src="./assets/logo_stacked.png" alt="Bolding &amp; Bruggeman">
+<div><p>Bolding &amp; Bruggeman · <a href="https://www.bolding-bruggeman.com">www.bolding-bruggeman.com</a> ·
+<a href="https://bolding.github.io/ocean-docs/">ocean-* documentation</a> · <a href="https://bolding.github.io/nesting-docs/">pyGETM nesting</a></p>
+<p>Generated from the pygetm-config documentation on 18 November 2026. pygetm-config itself is not public yet.</p></div></div></footer>
+</body></html>

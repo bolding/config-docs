@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>examples/minimal_barotropic.yaml · pygetm-config</title>
+<meta name="description" content="Example file from pygetm-config">
+<link rel="icon" href="../assets/logo_stacked.png">
+<link rel="stylesheet" href="../assets/style.css"><link rel="stylesheet" href="../assets/code.css"></head>
+<body>
+<header class="topbar"><div class="topin"><a class="brand" href="../index.html"><img src="../assets/logo_wide.png" alt="Bolding &amp; Bruggeman"><span>pygetm-config</span></a>
+<nav aria-label="Sections"><a href="../index.html">Overview</a><a href="../getting-started.html">Getting started</a><a href="../full-picture.html">The full picture</a><a href="../yaml-vs-python.html">YAML or Python</a><a href="../providers.html">Providers</a><a href="../nesting.html">Nested setups</a><a href="../examples.html" aria-current="page">Examples</a></nav></div></header>
+<section class="band"><div class="bandin"><h1>examples/minimal_barotropic.yaml</h1><p>Example file from pygetm-config</p></div></section>
+<main><div class="layout single"><article class="doc"><div class="codehilite"><pre><span></span><code><span class="c1"># A minimal, self-contained pyGETM config -- no external data files needed, runs</span>
+<span class="c1"># in a couple of seconds. This is the exact config used to verify the loader</span>
+<span class="c1"># end-to-end during development (see PLAN.md&#39;s addendum).</span>
+<span class="c1">#</span>
+<span class="c1"># Run it:</span>
+<span class="c1">#   conda activate pygetm   # needs pygetm -- this actually executes a simulation</span>
+<span class="c1">#   cd pygetm-config</span>
+<span class="c1">#   pygetm-config run examples/minimal_barotropic.yaml --stop 2020-01-01T00:05:00</span>
+<span class="c1">#</span>
+<span class="c1"># Or as a dry run (build + start, don&#39;t advance):</span>
+<span class="c1">#   pygetm-config run examples/minimal_barotropic.yaml --dry-run</span>
+<span class="c1">#</span>
+<span class="c1"># A tiny 5x5 Cartesian grid, flat 5 m depth, barotropic 2D (fastest/simplest</span>
+<span class="c1"># runtype -- no temperature/salinity/FABM), prescribed (constant, zero) surface</span>
+<span class="c1"># fluxes, one in-memory output recorder capturing surface elevation.</span>
+
+<span class="nt">domain</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">create_cartesian</span>
+<span class="w">  </span><span class="nt">x</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">0.0</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">100.0</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">200.0</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">300.0</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">400.0</span><span class="p p-Indicator">]</span><span class="w">   </span><span class="c1"># m</span>
+<span class="w">  </span><span class="nt">y</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">0.0</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">100.0</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">200.0</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">300.0</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">400.0</span><span class="p p-Indicator">]</span><span class="w">   </span><span class="c1"># m</span>
+<span class="w">  </span><span class="nt">H</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5.0</span><span class="w">                                  </span><span class="c1"># flat 5 m depth everywhere</span>
+<span class="w">  </span><span class="nt">f</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.0001</span><span class="w">                               </span><span class="c1"># Coriolis parameter (rad/s), ~mid-latitude</span>
+
+<span class="nt">simulation</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">runtype</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span><span class="w">        </span><span class="c1"># BAROTROPIC_2D -- no temperature/salinity/FABM needed</span>
+<span class="w">  </span><span class="nt">airsea</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Fluxes</span><span class="w">     </span><span class="c1"># prescribed (constant) surface fluxes, not calculated from meteo</span>
+<span class="w">    </span><span class="c1"># all of taux/tauy/sp/shf/swr/pe default to 0 -- a quiescent atmosphere</span>
+
+<span class="nt">runtime</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">time</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;2020-01-01T00:00:00&quot;</span><span class="w">   </span><span class="c1"># start time</span>
+<span class="w">  </span><span class="nt">timestep</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10.0</span><span class="w">                 </span><span class="c1"># seconds</span>
+<span class="w">  </span><span class="nt">split_factor</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
+
+<span class="nt">output</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">files</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">memory</span><span class="w">                          </span><span class="c1"># in-memory recorder, no file written</span>
+<span class="w">      </span><span class="nt">variable_requests</span><span class="p">:</span>
+<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">fields</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">zt</span><span class="p p-Indicator">]</span><span class="w">                       </span><span class="c1"># surface elevation</span>
+</code></pre></div></article></div></main>
+<footer class="foot"><div class="footin"><img src="../assets/logo_stacked.png" alt="Bolding &amp; Bruggeman">
+<div><p>Bolding &amp; Bruggeman · <a href="https://www.bolding-bruggeman.com">www.bolding-bruggeman.com</a> ·
+<a href="https://bolding.github.io/ocean-docs/">ocean-* documentation</a> · <a href="https://bolding.github.io/nesting-docs/">pyGETM nesting</a></p>
+<p>Generated from the pygetm-config documentation on 18 November 2026. pygetm-config itself is not public yet.</p></div></div></footer>
+</body></html>

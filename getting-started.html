@@ -1,0 +1,476 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Getting started · pygetm-config</title>
+<meta name="description" content="Getting started">
+<link rel="icon" href="./assets/logo_stacked.png">
+<link rel="stylesheet" href="./assets/style.css"><link rel="stylesheet" href="./assets/code.css"></head>
+<body>
+<header class="topbar"><div class="topin"><a class="brand" href="./index.html"><img src="./assets/logo_wide.png" alt="Bolding &amp; Bruggeman"><span>pygetm-config</span></a>
+<nav aria-label="Sections"><a href="index.html">Overview</a><a href="getting-started.html" aria-current="page">Getting started</a><a href="full-picture.html">The full picture</a><a href="yaml-vs-python.html">YAML or Python</a><a href="providers.html">Providers</a><a href="nesting.html">Nested setups</a><a href="examples.html">Examples</a></nav></div></header>
+<section class="band"><div class="bandin"><h1>Getting started</h1></div></section>
+<main><div class="layout"><aside class="side"><h2>On this page</h2><ul><li><a href="#two-layers-of-knowledge-not-one">Two layers of knowledge, not one</a></li><li><a href="#setup">Setup</a></li><li><a href="#step-1-the-smallest-config-that-runs">Step 1: the smallest config that runs</a></li><li><a href="#step-2-a-real-open-boundary-and-an-actual-run">Step 2: a real open boundary, and an actual run</a></li><li><a href="#step-3-output">Step 3: output</a></li><li><a href="#step-4-seeing-the-real-pygetm-code">Step 4: seeing the real pyGETM code</a></li><li><a href="#step-5-when-you-need-real-python">Step 5: when you need real Python</a></li><li><a href="#where-to-go-next">Where to go next</a></li></ul></aside><article class="doc"><h1 id="getting-started">Getting started</h1>
+<p>The other docs assume you already know why this tool exists and roughly what
+it looks like. This one doesn't — it's for someone who has pyGETM installed,
+has never touched pygetm-config before, and wants to go from nothing to a
+real, running simulation, one small step at a time. Every example below was
+actually run, not just written — copy-paste any of it and it works as-is, no
+external data files needed until the very last section.</p>
+<h2 id="two-layers-of-knowledge-not-one">Two layers of knowledge, not one</h2>
+<p>Before diving in, it's worth being explicit about something that isn't
+obvious from the README: building a <em>complex</em> setup with pygetm-config draws
+on two genuinely different kinds of knowledge, and this tool only replaces
+one of them.</p>
+<ol>
+<li><strong>pyGETM's own configuration surface</strong> — what a <code>Domain</code> takes, what
+   <code>Simulation</code> takes, what an open boundary or an output file takes. This is
+   what the YAML file and its schema are <em>for</em>. You don't need to know
+   pyGETM's Python API to use it — the schema is introspected live from a
+   real pyGETM install, so every field you can set in the YAML is a real
+   constructor/method parameter, with the same name, same type, same default.</li>
+<li><strong>Project-specific domain knowledge and Python</strong> — <em>which</em> hydrography
+   source to use, how open boundary segments correspond to a real coastline,
+   and genuinely dynamic logic that isn't expressible as static data at all
+   (OceanICU's river loading is the running example: which rivers to
+   include is threshold-filtered from a NetCDF file at run time, not a fixed
+   list — no YAML shape captures "compute this list right before using it").
+   pygetm-config's answer to this second layer is the <strong>script hook</strong>
+   convention (<code>data_script</code>/<code>script</code>/<code>post_data_script</code> fields pointing at
+   <code>path/to/file.py:function_name</code>) — see OceanICU's own
+   <a href="https://github.com/BoldingBruggeman/oceanicu_3d/blob/claude/driver/scripts/rivers.py"><code>scripts/rivers.py</code></a>, <a href="https://github.com/BoldingBruggeman/oceanicu_3d/blob/claude/driver/scripts/hydrography.py"><code>scripts/hydrography.py</code></a>,
+   <a href="https://github.com/BoldingBruggeman/oceanicu_3d/blob/claude/driver/scripts/meteo.py"><code>scripts/meteo.py</code></a> for real, worked examples, and
+   <a href="yaml-vs-python.html"><code>docs/yaml_vs_python.md</code></a> for how to tell which category a given piece of
+   config falls into.</li>
+</ol>
+<p>Layer 1 is what this tutorial teaches. Layer 2 is inherently project-specific
+— the closest thing to a tutorial for it is reading OceanICU's real scripts
+and <a href="https://github.com/BoldingBruggeman/oceanicu_3d/blob/claude/NSe/config/nse_from_oceanicu.yaml"><code>nse_from_oceanicu.yaml</code></a> once you're comfortable
+with the basics below.</p>
+<h2 id="setup">Setup</h2>
+<p>Two environments matter, and you'll only need the first one for this
+tutorial:</p>
+<ul>
+<li>A <strong>pygetm-capable</strong> environment (<code>conda activate pygetm</code> or similar) —
+  needed for anything that actually builds a domain/simulation:
+  <code>pygetm-config run</code>, <code>validate</code>, <code>dump</code>, <code>template</code>, and <code>nest</code> for a nested setup of several models
+  (needs the pyGETM fork with nesting; <a href="nesting.html"><code>docs/nesting.md</code></a>).</li>
+<li>A <strong>pygetm-free</strong> environment (<code>.venv-tui</code>) — only needed for the Textual
+  TUI (<code>pygetm-config edit</code>), which works from a schema <em>snapshot</em>
+  (<code>dist/schema.json</code>) without pyGETM installed at all. Not used below, but
+  worth knowing it exists once your config gets bigger than you want to
+  hand-edit.</li>
+</ul>
+<h2 id="step-1-the-smallest-config-that-runs">Step 1: the smallest config that runs</h2>
+<p>A domain, nothing else. <code>create_cartesian</code> (flat, meter-based coordinates,
+not real geography) keeps this self-contained — no bathymetry file needed.
+<code>airsea.type: Fluxes</code> matters here: the default airsea handler
+(<code>FluxesFromMeteo</code>) requires real meteo data to be set before it'll run, and
+we don't have any yet. Plain <code>Fluxes</code> doesn't.</p>
+<div class="codehilite"><pre><span></span><code><span class="c1"># step1.yaml</span>
+<span class="nt">domain</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">create_cartesian</span>
+<span class="w">  </span><span class="nt">x</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">0.0</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">1000.0</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">2000.0</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">3000.0</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">4000.0</span><span class="p p-Indicator">]</span>
+<span class="w">  </span><span class="nt">y</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">0.0</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">1000.0</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">2000.0</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">3000.0</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">4000.0</span><span class="p p-Indicator">]</span>
+<span class="w">  </span><span class="nt">H</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10.0</span>
+<span class="w">  </span><span class="nt">f</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.0e-4</span>
+
+<span class="nt">simulation</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">runtype</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">BAROTROPIC_2D</span>
+<span class="w">  </span><span class="nt">airsea</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Fluxes</span>
+
+<span class="nt">runtime</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">time</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;2024-01-01T00:00:00&quot;</span>
+<span class="w">  </span><span class="nt">timestep</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10.0</span>
+<span class="w">  </span><span class="nt">split_factor</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
+</code></pre></div>
+
+<div class="codehilite"><pre><span></span><code><span class="gp">$ </span>pygetm-config<span class="w"> </span>validate<span class="w"> </span>step1.yaml
+<span class="go">valid</span>
+<span class="gp">$ </span>pygetm-config<span class="w"> </span>run<span class="w"> </span>step1.yaml<span class="w"> </span>--dry-run
+<span class="go">...</span>
+<span class="go">dry run: built and started successfully, time=2024-01-01 00:00:00</span>
+</code></pre></div>
+
+<p><code>--dry-run</code> builds and starts the simulation but never advances it — the
+fastest way to check a config is actually constructible before committing to
+a real run. <code>validate</code> is faster still (no domain/simulation build at all,
+just schema checking) — reach for it first when iterating on a large config.</p>
+<h3 id="variant-coordinates-from-linspacearange-depth-from-a-file">Variant: coordinates from <code>linspace</code>/<code>arange</code>, depth from a file</h3>
+<p>Spelling out <code>x</code>/<code>y</code> (or <code>lon</code>/<code>lat</code> for <code>create_spherical</code>) as a literal
+list gets unwieldy past a handful of points. Any <code>array_like</code> field (<code>x</code>,
+<code>y</code>, <code>lon</code>, <code>lat</code>, <code>H</code>, <code>f</code>, <code>mask</code>, <code>z0</code>, ...) also accepts a small dict
+instead of a literal value or list — <code>kind: linspace</code>/<code>kind: arange</code> mirror
+<code>numpy.linspace</code>/<code>numpy.arange</code>'s own arguments exactly; <code>kind: file</code> reads
+a variable from a real NetCDF file:</p>
+<div class="codehilite"><pre><span></span><code><span class="nt">domain</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">create_cartesian</span>
+<span class="w">  </span><span class="nt">x</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="nv">linspace</span><span class="p p-Indicator">,</span><span class="nt"> start</span><span class="p">:</span><span class="w"> </span><span class="nv">0.0</span><span class="p p-Indicator">,</span><span class="nt"> stop</span><span class="p">:</span><span class="w"> </span><span class="nv">4000.0</span><span class="p p-Indicator">,</span><span class="nt"> num</span><span class="p">:</span><span class="w"> </span><span class="nv">5</span><span class="p p-Indicator">}</span>
+<span class="w">  </span><span class="nt">y</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="nv">linspace</span><span class="p p-Indicator">,</span><span class="nt"> start</span><span class="p">:</span><span class="w"> </span><span class="nv">0.0</span><span class="p p-Indicator">,</span><span class="nt"> stop</span><span class="p">:</span><span class="w"> </span><span class="nv">4000.0</span><span class="p p-Indicator">,</span><span class="nt"> num</span><span class="p">:</span><span class="w"> </span><span class="nv">5</span><span class="p p-Indicator">}</span>
+<span class="w">  </span><span class="nt">H</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="nv">file</span><span class="p p-Indicator">,</span><span class="nt"> file</span><span class="p">:</span><span class="w"> </span><span class="nv">bowl_bathy.nc</span><span class="p p-Indicator">,</span><span class="nt"> variable</span><span class="p">:</span><span class="w"> </span><span class="nv">H</span><span class="p p-Indicator">}</span>
+<span class="w">  </span><span class="nt">f</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.0e-4</span>
+</code></pre></div>
+
+<p><code>H</code>'s file needs to be built at the <strong>same resolution as the domain's own
+cell centers</strong> — pygetm maps a file-provided array onto the grid purely by
+<em>shape</em> (<code>(ny, nx)</code> at cell centers, <code>(ny+1, nx+1)</code> at cell corners, or a
+scalar to broadcast), there's no coordinate-based interpolation in this
+path. For anything genuinely lower/higher resolution than the domain (a
+real GEBCO tile, say), reach for <code>domain: {method: BathymetryFile, ...}</code>
+instead (see <a href="full-picture.html"><code>docs/overview.md</code></a>), which does real regridding.</p>
+<p>A small, real, standalone script to build a matching bowl-shaped
+<code>bowl_bathy.nc</code> — 5 m deep at the center, 20 m at the edges, on the exact
+same 5×5 <code>x</code>/<code>y</code> grid as above:</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="nn">np</span>
+<span class="kn">import</span> <span class="nn">netCDF4</span>
+
+<span class="n">nx</span><span class="p">,</span> <span class="n">ny</span> <span class="o">=</span> <span class="mi">5</span><span class="p">,</span> <span class="mi">5</span>
+<span class="n">x</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">4000.0</span><span class="p">,</span> <span class="n">nx</span><span class="p">)</span>
+<span class="n">y</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">4000.0</span><span class="p">,</span> <span class="n">ny</span><span class="p">)</span>
+<span class="n">X</span><span class="p">,</span> <span class="n">Y</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">meshgrid</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">)</span>
+<span class="n">cx</span><span class="p">,</span> <span class="n">cy</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">mean</span><span class="p">(),</span> <span class="n">y</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span>
+<span class="n">r</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sqrt</span><span class="p">((</span><span class="n">X</span> <span class="o">-</span> <span class="n">cx</span><span class="p">)</span> <span class="o">**</span> <span class="mi">2</span> <span class="o">+</span> <span class="p">(</span><span class="n">Y</span> <span class="o">-</span> <span class="n">cy</span><span class="p">)</span> <span class="o">**</span> <span class="mi">2</span><span class="p">)</span>
+<span class="n">H</span> <span class="o">=</span> <span class="mf">5.0</span> <span class="o">+</span> <span class="mf">15.0</span> <span class="o">*</span> <span class="p">(</span><span class="n">r</span> <span class="o">/</span> <span class="n">r</span><span class="o">.</span><span class="n">max</span><span class="p">())</span>  <span class="c1"># shallow bowl center, deeper at the edges</span>
+
+<span class="k">with</span> <span class="n">netCDF4</span><span class="o">.</span><span class="n">Dataset</span><span class="p">(</span><span class="s2">&quot;bowl_bathy.nc&quot;</span><span class="p">,</span> <span class="s2">&quot;w&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">nc</span><span class="p">:</span>
+    <span class="n">nc</span><span class="o">.</span><span class="n">createDimension</span><span class="p">(</span><span class="s2">&quot;x&quot;</span><span class="p">,</span> <span class="n">nx</span><span class="p">)</span>
+    <span class="n">nc</span><span class="o">.</span><span class="n">createDimension</span><span class="p">(</span><span class="s2">&quot;y&quot;</span><span class="p">,</span> <span class="n">ny</span><span class="p">)</span>
+    <span class="n">nc</span><span class="o">.</span><span class="n">createVariable</span><span class="p">(</span><span class="s2">&quot;x&quot;</span><span class="p">,</span> <span class="s2">&quot;f8&quot;</span><span class="p">,</span> <span class="p">(</span><span class="s2">&quot;x&quot;</span><span class="p">,))[:]</span> <span class="o">=</span> <span class="n">x</span>
+    <span class="n">nc</span><span class="o">.</span><span class="n">createVariable</span><span class="p">(</span><span class="s2">&quot;y&quot;</span><span class="p">,</span> <span class="s2">&quot;f8&quot;</span><span class="p">,</span> <span class="p">(</span><span class="s2">&quot;y&quot;</span><span class="p">,))[:]</span> <span class="o">=</span> <span class="n">y</span>
+    <span class="n">nc</span><span class="o">.</span><span class="n">createVariable</span><span class="p">(</span><span class="s2">&quot;H&quot;</span><span class="p">,</span> <span class="s2">&quot;f8&quot;</span><span class="p">,</span> <span class="p">(</span><span class="s2">&quot;y&quot;</span><span class="p">,</span> <span class="s2">&quot;x&quot;</span><span class="p">))[:]</span> <span class="o">=</span> <span class="n">H</span>
+</code></pre></div>
+
+<p>Genuinely tested, both directions: this exact <code>x</code>/<code>y</code>/<code>H</code> combination
+builds and starts a real simulation (<code>pygetm-config run ... --dry-run</code>,
+volume reflects the varying depth, not a flat one), and the same
+<code>linspace</code>/<code>kind: file</code> pattern works identically for <code>create_spherical</code>'s
+<code>lon</code>/<code>lat</code> (tested with a small lon/lat bowl file the same way). Use this
+as a starting point for your own depth field — replace the bowl formula
+with whatever real bathymetry you have, keeping the file's grid resolution
+matched to <code>x</code>/<code>y</code> (or <code>lon</code>/<code>lat</code>).</p>
+<h2 id="step-2-a-real-open-boundary-and-an-actual-run">Step 2: a real open boundary, and an actual run</h2>
+<p>Adding an open boundary needs two things: the boundary's <em>position</em>
+(<code>open_boundaries:</code>, a list — one entry per contiguous segment) and its
+<em>value</em> (<code>data_assignments:</code>, described below). <code>type_2d: FLATHER_ELEV</code>
+is a real pyGETM boundary condition type (radiating elevation).</p>
+<div class="codehilite"><pre><span></span><code><span class="c1"># step2.yaml</span>
+<span class="nt">domain</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">create_cartesian</span>
+<span class="w">  </span><span class="nt">x</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">0.0</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">1000.0</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">2000.0</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">3000.0</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">4000.0</span><span class="p p-Indicator">]</span>
+<span class="w">  </span><span class="nt">y</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">0.0</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">1000.0</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">2000.0</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">3000.0</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">4000.0</span><span class="p p-Indicator">]</span>
+<span class="w">  </span><span class="nt">H</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10.0</span>
+<span class="w">  </span><span class="nt">f</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.0e-4</span>
+
+<span class="nt">open_boundaries</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">side</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">WEST</span>
+<span class="w">    </span><span class="nt">l</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0</span>
+<span class="w">    </span><span class="nt">mstart</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0</span>
+<span class="w">    </span><span class="nt">mstop</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5</span>
+<span class="w">    </span><span class="nt">type_2d</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">FLATHER_ELEV</span>
+
+<span class="nt">simulation</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">runtype</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">BAROTROPIC_2D</span>
+<span class="w">  </span><span class="nt">airsea</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Fluxes</span>
+
+<span class="nt">runtime</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">time</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;2024-01-01T00:00:00&quot;</span>
+<span class="w">  </span><span class="nt">timestep</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10.0</span>
+<span class="w">  </span><span class="nt">split_factor</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
+
+<span class="nt">data_assignments</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">target</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">open_boundaries.z</span>
+<span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">constant</span>
+<span class="w">    </span><span class="nt">constant_value</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.1</span>
+</code></pre></div>
+
+<p><code>data_assignments</code> is the generic "where does this value come from" list —
+every entry has a <code>target</code> (a dotted path into the live simulation) and a
+<code>kind</code> (<code>constant</code>, <code>file</code>, <code>tpxo</code>, or <code>boundary_type</code> — see
+<a href="full-picture.html"><code>docs/overview.md</code></a> for the full picture). <code>open_boundaries.z</code> (<strong>plural</strong>
+<code>open_boundaries</code>, not <code>open_boundary</code>) is deliberate: barotropic
+elevation/transport fields live directly on <code>sim.open_boundaries</code>, not
+per-tracer — this is one of the places pygetm-config's own docstrings exist
+specifically because the naming isn't obvious from pyGETM's API alone.</p>
+<p>Now a real run, not just <code>--dry-run</code>:</p>
+<div class="codehilite"><pre><span></span><code><span class="gp">$ </span>pygetm-config<span class="w"> </span>run<span class="w"> </span>step2.yaml<span class="w"> </span>--stop<span class="w"> </span><span class="m">2024</span>-01-01T00:05:00
+<span class="go">...</span>
+<span class="go">INFO:pygetm_config.loader:open_boundaries.z.set(0.1)</span>
+<span class="go">...</span>
+<span class="go">INFO:root:2024-01-01 00:05:00</span>
+<span class="go">finished: time=2024-01-01 00:05:00</span>
+</code></pre></div>
+
+<p>Five real minutes of simulated time, forced by a constant 0.1 m boundary
+elevation. Every <code>.set()</code>/constructor call pygetm-config makes on your
+behalf is logged at INFO level — if you're ever unsure what a config value
+actually <em>does</em>, run it and read the log.</p>
+<h2 id="step-3-output">Step 3: output</h2>
+<div class="codehilite"><pre><span></span><code><span class="c1"># step3.yaml -- everything from step2.yaml, plus:</span>
+<span class="nt">output</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">files</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">netcdf</span>
+<span class="w">      </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tutorial_out.nc</span>
+<span class="w">      </span><span class="nt">interval</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
+<span class="w">      </span><span class="nt">interval_units</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">MINUTES</span>
+<span class="w">      </span><span class="nt">variable_requests</span><span class="p">:</span>
+<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">fields</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">zt</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">u1</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">v1</span><span class="p p-Indicator">]</span>
+</code></pre></div>
+
+<div class="codehilite"><pre><span></span><code><span class="gp">$ </span>pygetm-config<span class="w"> </span>run<span class="w"> </span>step3.yaml<span class="w"> </span>--stop<span class="w"> </span><span class="m">2024</span>-01-01T00:05:00
+<span class="go">...</span>
+<span class="go">INFO:pygetm_config.loader:sim.output_manager.add_netcdf_file(path=PosixPath(&#39;tutorial_out.nc&#39;), interval=1, interval_units=&lt;TimeUnit.MINUTES: 3&gt;)</span>
+<span class="go">INFO:pygetm_config.loader:output.files[0].request(&#39;zt&#39;, &#39;u1&#39;, &#39;v1&#39;)</span>
+<span class="go">...</span>
+<span class="go">finished: time=2024-01-01 00:05:00</span>
+<span class="gp">$ </span>ls<span class="w"> </span>-la<span class="w"> </span>tutorial_out.nc
+<span class="go">-rw-rw-r-- 1 kb kb 50433 ... tutorial_out.nc</span>
+</code></pre></div>
+
+<p><code>output.files</code> is a plain list — as many files as you want, each with its
+own real <code>add_netcdf_file</code>/<code>add_zarr_file</code>/etc. parameters (interval,
+compression, whatever the real pyGETM method accepts) and its own field
+list. <code>output.variable_groups</code> (not shown here) lets you name a reusable set
+of fields instead of repeating a long list across files — see
+<a href="https://github.com/BoldingBruggeman/oceanicu_3d/blob/claude/NSe/config/nse_from_oceanicu.yaml"><code>nse_from_oceanicu.yaml</code></a> for a real example once you
+have more than a handful of output variables.</p>
+<h2 id="step-4-seeing-the-real-pygetm-code">Step 4: seeing the real pyGETM code</h2>
+<div class="codehilite"><pre><span></span><code><span class="gp">$ </span>pygetm-config<span class="w"> </span>run<span class="w"> </span>step3.yaml<span class="w"> </span>--stop<span class="w"> </span><span class="m">2024</span>-01-01T00:05:00<span class="w"> </span>--dump-python<span class="w"> </span>generated.py
+<span class="go">wrote generated.py</span>
+</code></pre></div>
+
+<p>This writes a <strong>standalone</strong> script — no <code>pygetm_config</code> import needed to
+run it, just literal, ordinary pyGETM calls. Worth actually reading once:
+it's the most direct way to build a mental model of what your YAML <em>means</em>
+in terms of the real API, and it doubles as a debugging aid (real
+breakpoints, real prints, nothing hidden behind an abstraction layer).</p>
+<p>It's also worth treating as a genuine <strong>archival artifact</strong>, not just a
+debugging convenience. <code>--dump-python</code> also writes a companion
+<code>..._config.yaml</code> — the fully validated, merged config as it actually was
+at generation time, <code>${VAR}</code> references and all. Together, the generated
+script + its config snapshot are a single, self-contained, frozen record of
+<em>exactly</em> what a given run actually did: no dependency on the live
+pygetm-config schema version, no dependency on <code>nse_from_oceanicu.yaml</code>
+having stayed unchanged since — both of which keep evolving. Six months from
+now, "what was my exact setup for this specific run" is answered by that one
+generated file, not by trying to reconstruct it from a config that's since
+been edited and a driver whose schema has moved on. Worth keeping the
+generated script + config pair alongside a run's actual output, not
+regenerating on demand and discarding.</p>
+<p><strong>One thing worth being explicit about</strong>: the generated script's <em>shape</em> —
+<code>create_domain()</code> / <code>create_simulation(domain)</code> / <code>configure_output(sim)</code> /
+<code>run(sim)</code> / <code>main()</code> — mirrors OceanICU's own <a href="https://github.com/BoldingBruggeman/oceanicu_3d/blob/claude/run_model.py"><code>run_model.py</code></a>
+conventions. That's a deliberate choice for continuity within OceanICU (so a generated
+script reads like the hand-written scripts this project already had), <strong>not
+a pyGETM requirement</strong>. A pyGETM run is fundamentally just: build a domain,
+build a simulation, <code>.set()</code> some values, <code>sim.start()</code>, loop
+<code>sim.advance()</code>. There's nothing about pygetm-config or pyGETM that requires
+that specific function-per-phase structure — if you're starting a project
+with no existing script conventions to match, feel free to write your own
+driver shaped however makes sense to you; <code>pygetm_config.loader</code>'s
+individual functions (<code>build_domain</code>, <code>add_open_boundaries</code>,
+<code>build_simulation</code>, <code>apply_data_assignments</code>, <code>configure_output</code>,
+<code>start_simulation</code>, ...) are meant to be called piece by piece from
+whatever structure you actually want, not just from <code>run_from_config</code>'s own
+all-in-one convenience wrapper.</p>
+<p>Concretely — written by hand, not generated, using <code>pygetm_config</code>'s own
+<code>loader</code> API directly: a deliberately non-OceanICU-shaped driver for
+<code>step3.yaml</code> above, no functions at all, just linear top-to-bottom code:</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span> <span class="nn">datetime</span>
+
+<span class="kn">from</span> <span class="nn">pygetm_config.loader</span> <span class="kn">import</span> <span class="p">(</span>
+    <span class="n">build_domain</span><span class="p">,</span> <span class="n">add_open_boundaries</span><span class="p">,</span> <span class="n">check_domain_cfl</span><span class="p">,</span> <span class="n">build_simulation</span><span class="p">,</span>
+    <span class="n">apply_data_assignments</span><span class="p">,</span> <span class="n">configure_output</span><span class="p">,</span> <span class="n">start_simulation</span><span class="p">,</span> <span class="n">run_loop</span><span class="p">,</span>
+    <span class="n">finish_simulation</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span> <span class="nn">pygetm_config.schema</span> <span class="kn">import</span> <span class="n">build_schema</span>
+<span class="kn">from</span> <span class="nn">pygetm_config.yaml_parse</span> <span class="kn">import</span> <span class="n">validate_config</span>
+<span class="kn">import</span> <span class="nn">yaml</span>
+
+<span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="s2">&quot;step3.yaml&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+    <span class="n">raw</span> <span class="o">=</span> <span class="n">yaml</span><span class="o">.</span><span class="n">safe_load</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
+
+<span class="n">schema</span> <span class="o">=</span> <span class="n">build_schema</span><span class="p">()</span>
+<span class="n">config</span><span class="p">,</span> <span class="n">errors</span> <span class="o">=</span> <span class="n">validate_config</span><span class="p">(</span><span class="n">raw</span><span class="p">,</span> <span class="n">schema</span><span class="p">)</span>
+<span class="k">assert</span> <span class="ow">not</span> <span class="n">errors</span><span class="p">,</span> <span class="n">errors</span>
+
+<span class="n">domain</span> <span class="o">=</span> <span class="n">build_domain</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">schema</span><span class="p">)</span>
+<span class="n">add_open_boundaries</span><span class="p">(</span><span class="n">domain</span><span class="p">,</span> <span class="n">config</span><span class="p">,</span> <span class="n">schema</span><span class="p">)</span>
+<span class="n">check_domain_cfl</span><span class="p">(</span><span class="n">domain</span><span class="p">)</span>
+
+<span class="n">sim</span> <span class="o">=</span> <span class="n">build_simulation</span><span class="p">(</span><span class="n">domain</span><span class="p">,</span> <span class="n">config</span><span class="p">,</span> <span class="n">schema</span><span class="p">)</span>
+<span class="n">apply_data_assignments</span><span class="p">(</span><span class="n">sim</span><span class="p">,</span> <span class="n">domain</span><span class="p">,</span> <span class="n">config</span><span class="p">,</span> <span class="n">schema</span><span class="p">)</span>
+<span class="n">configure_output</span><span class="p">(</span><span class="n">sim</span><span class="p">,</span> <span class="n">config</span><span class="p">,</span> <span class="n">schema</span><span class="p">)</span>
+<span class="n">start_simulation</span><span class="p">(</span><span class="n">sim</span><span class="p">,</span> <span class="n">config</span><span class="p">,</span> <span class="n">schema</span><span class="p">)</span>
+
+<span class="n">run_loop</span><span class="p">(</span><span class="n">sim</span><span class="p">,</span> <span class="n">config</span><span class="p">,</span> <span class="n">datetime</span><span class="o">.</span><span class="n">datetime</span><span class="o">.</span><span class="n">fromisoformat</span><span class="p">(</span><span class="s2">&quot;2024-01-01T00:05:00&quot;</span><span class="p">))</span>
+<span class="n">finish_simulation</span><span class="p">(</span><span class="n">sim</span><span class="p">)</span>
+</code></pre></div>
+
+<p>Genuinely run, not just written — same real simulation as <code>pygetm-config
+run step3.yaml --stop 2024-01-01T00:05:00</code>, just without any
+<code>pygetm_config</code> CLI, <code>--dump-python</code>, or OceanICU-style function
+boundaries involved at all. Every <code>loader.*</code> function takes an
+already-built <code>domain</code>/<code>sim</code>/<code>config</code> rather than constructing anything
+internally, specifically so a script like this — or a Jupyter notebook, or
+a class-based structure, or whatever else fits your own project — can call
+exactly the pieces it needs, in whatever order and shape make sense, and
+skip the rest (no <code>open_boundaries:</code> at all? skip <code>add_open_boundaries</code>
+entirely).</p>
+<p><code>--dump-python</code> can produce this same shape too — a <strong>flat</strong>, <code>--dump-python-style flat</code>
+script is the literalized/frozen equivalent of the linear driver above (same
+statement order, same variable names, real values baked in, no
+<code>pygetm_config</code> import needed to run it) instead of the default
+<code>create_domain()</code>/<code>create_simulation(domain)</code>/<code>configure_output(sim)</code>/
+<code>run(sim)</code>/<code>main()</code> structure:</p>
+<div class="codehilite"><pre><span></span><code><span class="gp">$ </span>pygetm-config<span class="w"> </span>run<span class="w"> </span>step3.yaml<span class="w"> </span>--stop<span class="w"> </span><span class="m">2024</span>-01-01T00:05:00<span class="w"> </span>--dump-python<span class="w"> </span>generated_flat.py<span class="w"> </span>--dump-python-style<span class="w"> </span>flat
+<span class="go">wrote generated_flat.py</span>
+</code></pre></div>
+
+<p>Useful as a starting point in its own right: a flat, frozen script is easier
+to manually cut into and extend line by line than one already split across
+four functions — e.g. if you're about to hand-add something project-specific
+this config format doesn't know about, and you don't yet know exactly where
+in the pyGETM call sequence it needs to go.</p>
+<p><code>generated_flat.py</code> starts with the exact same header every <code>--dump-python</code>
+output has (imports, embedded helpers, a real <code>argparse</code> parser — <code>style</code>
+only changes what comes <em>after</em> <code>args = parser.parse_args()</code>). The excerpt
+below picks up right there:</p>
+<div class="codehilite"><pre><span></span><code><span class="c1"># ... imports, resolve_data_path/apply_data_roots, argparse, args = parser.parse_args()</span>
+<span class="c1"># (identical to the &quot;functions&quot; style above) omitted here -- this is an excerpt,</span>
+<span class="c1"># not the full file; run the command above to get something you can execute as is.</span>
+
+<span class="c1"># --- domain ---</span>
+<span class="n">domain</span> <span class="o">=</span> <span class="n">pygetm</span><span class="o">.</span><span class="n">domain</span><span class="o">.</span><span class="n">create_cartesian</span><span class="p">(</span>
+    <span class="n">x</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">1000.0</span><span class="p">,</span> <span class="mf">2000.0</span><span class="p">,</span> <span class="mf">3000.0</span><span class="p">,</span> <span class="mf">4000.0</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">float</span><span class="p">),</span>
+    <span class="n">y</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">1000.0</span><span class="p">,</span> <span class="mf">2000.0</span><span class="p">,</span> <span class="mf">3000.0</span><span class="p">,</span> <span class="mf">4000.0</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">float</span><span class="p">),</span>
+    <span class="n">H</span><span class="o">=</span><span class="mf">10.0</span><span class="p">,</span>
+    <span class="n">f</span><span class="o">=</span><span class="mf">0.0001</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="c1"># --- open_boundaries ---</span>
+<span class="n">domain</span><span class="o">.</span><span class="n">open_boundaries</span><span class="o">.</span><span class="n">add_by_index</span><span class="p">(</span>
+    <span class="n">side</span><span class="o">=</span><span class="n">pygetm</span><span class="o">.</span><span class="n">open_boundaries</span><span class="o">.</span><span class="n">Side</span><span class="o">.</span><span class="n">WEST</span><span class="p">,</span>
+    <span class="n">l</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+    <span class="n">mstart</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+    <span class="n">mstop</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span>
+    <span class="n">type_2d</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>  <span class="c1"># FLATHER_ELEV</span>
+    <span class="n">type_3d</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>  <span class="c1"># ZERO_GRADIENT</span>
+<span class="p">)</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;domain.cfl_check() -&gt; max stable 2D timestep </span><span class="si">{</span><span class="n">domain</span><span class="o">.</span><span class="n">cfl_check</span><span class="p">()</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2"> s&quot;</span><span class="p">)</span>
+
+<span class="c1"># --- simulation ---</span>
+<span class="n">airsea</span> <span class="o">=</span> <span class="n">pygetm</span><span class="o">.</span><span class="n">airsea</span><span class="o">.</span><span class="n">Fluxes</span><span class="p">(</span>
+<span class="p">)</span>
+<span class="n">sim</span> <span class="o">=</span> <span class="n">pygetm</span><span class="o">.</span><span class="n">simulation</span><span class="o">.</span><span class="n">Simulation</span><span class="p">(</span>
+    <span class="n">domain</span><span class="p">,</span>
+    <span class="n">runtype</span><span class="o">=</span><span class="n">pygetm</span><span class="o">.</span><span class="n">constants</span><span class="o">.</span><span class="n">RunType</span><span class="o">.</span><span class="n">BAROTROPIC_2D</span><span class="p">,</span>
+    <span class="n">airsea</span><span class="o">=</span><span class="n">airsea</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="c1"># --- data_assignments ---</span>
+<span class="n">sim</span><span class="o">.</span><span class="n">open_boundaries</span><span class="o">.</span><span class="n">z</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="mf">0.1</span><span class="p">)</span>
+
+<span class="c1"># --- output ---</span>
+<span class="n">output_file_0</span> <span class="o">=</span> <span class="n">sim</span><span class="o">.</span><span class="n">output_manager</span><span class="o">.</span><span class="n">add_netcdf_file</span><span class="p">(</span>
+    <span class="n">path</span><span class="o">=</span><span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span><span class="p">(</span><span class="n">resolve_data_path</span><span class="p">(</span><span class="s1">&#39;tutorial_out.nc&#39;</span><span class="p">)),</span>
+    <span class="n">interval</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+    <span class="n">interval_units</span><span class="o">=</span><span class="n">pygetm</span><span class="o">.</span><span class="n">output</span><span class="o">.</span><span class="n">TimeUnit</span><span class="o">.</span><span class="n">MINUTES</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">_request_output_fields</span><span class="p">(</span><span class="n">output_file_0</span><span class="p">,</span> <span class="p">[</span><span class="s1">&#39;zt&#39;</span><span class="p">,</span> <span class="s1">&#39;u1&#39;</span><span class="p">,</span> <span class="s1">&#39;v1&#39;</span><span class="p">],</span> <span class="n">skip_unavailable</span><span class="o">=</span><span class="n">args</span><span class="o">.</span><span class="n">skip_unavailable_output</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s1">&#39;output.files[0].variable_requests[0]&#39;</span><span class="p">)</span>
+
+<span class="k">if</span> <span class="n">args</span><span class="o">.</span><span class="n">save_restart</span><span class="p">:</span>
+    <span class="n">sim</span><span class="o">.</span><span class="n">output_manager</span><span class="o">.</span><span class="n">add_restart</span><span class="p">(</span><span class="n">args</span><span class="o">.</span><span class="n">save_restart</span><span class="p">)</span>
+
+<span class="c1"># --- start ---</span>
+<span class="n">_start_kwargs</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span>
+    <span class="n">timestep</span><span class="o">=</span><span class="mf">10.0</span><span class="p">,</span>
+    <span class="n">split_factor</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="k">if</span> <span class="n">args</span><span class="o">.</span><span class="n">load_restart</span><span class="p">:</span>
+    <span class="n">_start_kwargs</span><span class="p">[</span><span class="s1">&#39;time&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">sim</span><span class="o">.</span><span class="n">load_restart</span><span class="p">(</span><span class="n">args</span><span class="o">.</span><span class="n">load_restart</span><span class="p">)</span>
+<span class="k">elif</span> <span class="n">args</span><span class="o">.</span><span class="n">start</span><span class="p">:</span>
+    <span class="n">_start_kwargs</span><span class="p">[</span><span class="s1">&#39;time&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">datetime</span><span class="o">.</span><span class="n">fromisoformat</span><span class="p">(</span><span class="n">args</span><span class="o">.</span><span class="n">start</span><span class="p">)</span>
+<span class="k">else</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s1">&#39;runtime.time is required (or pass --start / --load-restart)&#39;</span><span class="p">,</span> <span class="n">file</span><span class="o">=</span><span class="n">sys</span><span class="o">.</span><span class="n">stderr</span><span class="p">)</span>
+    <span class="n">sys</span><span class="o">.</span><span class="n">exit</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+<span class="n">sim</span><span class="o">.</span><span class="n">start</span><span class="p">(</span><span class="o">**</span><span class="n">_start_kwargs</span><span class="p">)</span>
+
+<span class="k">if</span> <span class="ow">not</span> <span class="n">args</span><span class="o">.</span><span class="n">dry_run</span> <span class="ow">and</span> <span class="n">args</span><span class="o">.</span><span class="n">stop</span><span class="p">:</span>
+    <span class="n">stop</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">datetime</span><span class="o">.</span><span class="n">fromisoformat</span><span class="p">(</span><span class="n">args</span><span class="o">.</span><span class="n">stop</span><span class="p">)</span>
+    <span class="k">while</span> <span class="n">sim</span><span class="o">.</span><span class="n">time</span> <span class="o">&lt;</span> <span class="n">stop</span><span class="p">:</span>
+        <span class="n">sim</span><span class="o">.</span><span class="n">advance</span><span class="p">(</span><span class="n">check_finite</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+<span class="k">elif</span> <span class="n">args</span><span class="o">.</span><span class="n">dry_run</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;dry run: built and started only, not advanced, time=</span><span class="si">{</span><span class="n">sim</span><span class="o">.</span><span class="n">time</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">file</span><span class="o">=</span><span class="n">sys</span><span class="o">.</span><span class="n">stderr</span><span class="p">)</span>
+<span class="k">else</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;no --stop given -- not advancing&quot;</span><span class="p">,</span> <span class="n">file</span><span class="o">=</span><span class="n">sys</span><span class="o">.</span><span class="n">stderr</span><span class="p">)</span>
+<span class="n">sim</span><span class="o">.</span><span class="n">finish</span><span class="p">()</span>
+</code></pre></div>
+
+<p>Genuinely the real output of the command above, for <code>step3.yaml</code> — not
+hand-transcribed. Compare it against the linear driver higher up: same
+shape, but this one is what <code>pygetm-config</code> itself would produce from any
+config, including one far too large to comfortably hand-write a driver for.</p>
+<p>pyGETM's own <a href="https://github.com/BoldingBruggeman/getm-rewrite/tree/devel/python/examples">real example set</a> (a separate repo) is the
+other direction entirely: hand-written scripts and notebooks
+(<a href="https://github.com/BoldingBruggeman/getm-rewrite/blob/devel/python/examples/north_sea.py"><code>north_sea.py</code></a>, <a href="https://github.com/BoldingBruggeman/getm-rewrite/blob/devel/python/examples/box_spherical.py"><code>box_spherical.py</code></a>,
+<a href="https://github.com/BoldingBruggeman/getm-rewrite/blob/devel/python/examples/open_boundaries.ipynb"><code>open_boundaries.ipynb</code></a>,
+<a href="https://github.com/BoldingBruggeman/getm-rewrite/blob/devel/python/examples/test_vertical_coordinates.ipynb"><code>test_vertical_coordinates.ipynb</code></a>, and many
+more), each built directly against pyGETM's raw API with no config-file
+layer at all — plain <code>argparse</code> and literal constructor calls, no schema,
+no generation step.
+Worth browsing if you want to see the breadth of what pyGETM itself can do
+(GOTM coupling, FABM, different domain shapes, parallel runs) independent
+of pygetm-config, or if you're trying to understand a pyGETM feature that
+isn't yet exercised by anything OceanICU-specific — they're the canonical
+"write the Python by hand" reference, the mirror image of the
+YAML-first/generate-the-Python approach this tool takes.</p>
+<h2 id="step-5-when-you-need-real-python">Step 5: when you need real Python</h2>
+<p>Everything so far was expressible as static YAML because every value was
+either fixed at config-write time or a plain file read. Real setups
+eventually hit something that genuinely can't be — OceanICU's rivers are the
+concrete example: <em>which</em> rivers to include, and their actual discharge
+values, are computed from a real NetCDF file (threshold-filtered) at run
+time, not knowable when you write the YAML.</p>
+<p>pygetm-config's answer is the <strong>script hook</strong>: a config field pointing at
+<code>path/to/file.py:function_name</code>, loaded and called with the live
+<code>domain</code>/<code>sim</code> object already built. <code>river_discharge.emorid.script</code> /
+<code>.data_script</code> in <a href="https://github.com/BoldingBruggeman/oceanicu_3d/blob/claude/NSe/config/nse_from_oceanicu.yaml"><code>nse_from_oceanicu.yaml</code></a>, pointing
+at real functions in <a href="https://github.com/BoldingBruggeman/oceanicu_3d/blob/claude/driver/scripts/rivers.py"><code>scripts/rivers.py</code></a>, is the worked
+example — read that file's own docstring for the exact contract (what
+arguments it receives, what it's expected to do). The same convention
+covers hydrography initial conditions
+(<a href="https://github.com/BoldingBruggeman/oceanicu_3d/blob/claude/driver/scripts/hydrography.py"><code>scripts/hydrography.py</code></a>) and meteo-source-specific
+data wiring (<a href="https://github.com/BoldingBruggeman/oceanicu_3d/blob/claude/driver/scripts/meteo.py"><code>scripts/meteo.py</code></a>).</p>
+<p>The rule of thumb for "does this need a script hook, or is it just data":
+if you can write down the value (or the file it comes from) <em>today</em>,
+independent of anything the simulation computes at run time, it's
+<code>data_assignments</code>. If it depends on real-time information (today's actual
+river list above a threshold, a value derived from another live config
+field) or needs a real Python loop/conditional to construct, it's a script
+hook. <a href="yaml-vs-python.html"><code>docs/yaml_vs_python.md</code></a> walks through OceanICU's own conversion in
+detail — several things that <em>looked</em> bespoke (bathymetry-file reading, in
+particular) turned out to be pure data once actually checked against the
+reference code, so it's worth verifying rather than assuming.</p>
+<h2 id="where-to-go-next">Where to go next</h2>
+<ul>
+<li><a href="full-picture.html"><code>docs/overview.md</code></a> — the full pipeline, why two environments, why every
+  <code>ChoiceSpec</code> alternative stays present in the YAML even when unused.</li>
+<li><a href="yaml-vs-python.html"><code>docs/yaml_vs_python.md</code></a> — the real OceanICU conversion, field by field:
+  what turned out to be data vs. what genuinely needed a script hook.</li>
+<li><a href="providers.html"><code>docs/providers.md</code></a> — if your project needs its own data-provenance
+  vocabulary (which hydrography/meteo/boundary <em>sources</em> exist, not just
+  how their values get in) rather than reusing OceanICU's.</li>
+<li><a href="https://github.com/BoldingBruggeman/oceanicu_3d/blob/claude/NSe/config/nse_from_oceanicu.yaml"><code>nse_from_oceanicu.yaml</code></a> (OceanICU's own repo) — a
+  real, complex, production config, once the shapes above feel familiar. See
+  <a href="full-picture.html"><code>docs/overview.md</code></a>'s "tour of one real config" for a section-by-section
+  walkthrough of it.</li>
+<li><code>pygetm-config edit --schema dist/schema.json config.yaml</code> — the TUI, for
+  browsing every available field (tiered by importance, with pyGETM's own
+  docstrings as inline help) without hand-writing YAML from scratch.</li>
+</ul></article></div></main>
+<footer class="foot"><div class="footin"><img src="./assets/logo_stacked.png" alt="Bolding &amp; Bruggeman">
+<div><p>Bolding &amp; Bruggeman · <a href="https://www.bolding-bruggeman.com">www.bolding-bruggeman.com</a> ·
+<a href="https://bolding.github.io/ocean-docs/">ocean-* documentation</a> · <a href="https://bolding.github.io/nesting-docs/">pyGETM nesting</a></p>
+<p>Generated from the pygetm-config documentation on 18 November 2026. pygetm-config itself is not public yet.</p></div></div></footer>
+</body></html>

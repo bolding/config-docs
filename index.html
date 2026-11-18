@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>pygetm-config · pygetm-config</title>
+<meta name="description" content="A configuration schema for pyGETM, built from its Python API: YAML templates, validation, an editor, and runs and nested setups from one file.">
+<link rel="icon" href="./assets/logo_stacked.png">
+<link rel="stylesheet" href="./assets/style.css"><link rel="stylesheet" href="./assets/code.css"></head>
+<body>
+<header class="topbar"><div class="topin"><a class="brand" href="./index.html"><img src="./assets/logo_wide.png" alt="Bolding &amp; Bruggeman"><span>pygetm-config</span></a>
+<nav aria-label="Sections"><a href="index.html" aria-current="page">Overview</a><a href="getting-started.html">Getting started</a><a href="full-picture.html">The full picture</a><a href="yaml-vs-python.html">YAML or Python</a><a href="providers.html">Providers</a><a href="nesting.html">Nested setups</a><a href="examples.html">Examples</a></nav></div></header>
+<section class="band"><div class="bandin"><h1>pygetm-config</h1><p>A configuration schema for pyGETM, built from its Python API: YAML templates, validation, an editor, and runs and nested setups from one file.</p></div></section>
+<main><div class="layout"><aside class="side"><h2>On this page</h2><ul><li><a href="#nested-setups">Nested setups</a></li><li><a href="#scope">Scope</a></li><li><a href="#two-environments-introspection-vs-frontend">Two environments: introspection vs. frontend</a></li><li><a href="#development">Development</a></li></ul></aside><article class="doc"><h1 id="pygetm-config">pygetm-config</h1>
+<p>An introspection-driven configuration schema for <a href="https://github.com/BoldingBruggeman/getm-rewrite">pyGETM</a>.</p>
+<p>pyGETM has no native YAML/config file format of its own — a model setup is built by calling
+its well-typed, well-documented Python constructors and methods directly. <code>pygetm-config</code>
+introspects pyGETM's live Python API (<code>Domain</code>, <code>Simulation</code>, boundary/river collections,
+output requests, pluggable strategy objects like <code>vertical_coordinates</code>/<code>internal_pressure</code>/
+<code>airsea</code>, ...) to build a structured, general-purpose model of "everything configurable in a
+pyGETM setup", tiered by importance (<code>basic</code> / <code>advanced</code> / <code>expert</code>), plus round-trip YAML
+support (template generation with inline help text, and parsing/validation).</p>
+<p>This package is independent of any particular project (OceanICU or otherwise) and independent
+of the <code>ocean-stack</code> umbrella environment. It has no dependency on either beyond <code>pygetm</code>
+itself (only required for the introspection engine — the data model and YAML round-trip code
+work from a pre-generated schema snapshot with no pygetm import needed).</p>
+<p>See <a href="full-picture.html"><code>docs/overview.md</code></a> for the full zoomed-out picture (the whole pipeline from
+introspection to a running simulation, a section-by-section tour of a real
+converted config, and the end-to-end lifecycle for a brand-new project) if
+you're looking for how everything below fits together, not just the individual
+pieces.</p>
+<h2 id="nested-setups">Nested setups</h2>
+<p><code>pygetm-config nest master.yaml --out RUN</code> builds a nested setup for the two-way nesting of the pyGETM fork
+(bolding/pygetm, branch <code>nesting-mpmd</code>): from one master file (a base configuration, the levels' layout, per-level
+overrides) every level's configuration and run script, and a launch script (mpiexec, optionally a Slurm job). Opt-in:
+single-model configurations are unaffected. See <a href="nesting.html"><code>docs/nesting.md</code></a>.</p>
+<h2 id="scope">Scope</h2>
+<p>This package builds and validates the <strong>schema</strong>, includes a Textual TUI frontend for editing
+configs against it, and (<code>pygetm_config/loader.py</code>) can build a live pyGETM <code>Domain</code>/<code>Simulation</code>
+from a validated config and actually run it. See <code>PLAN.md</code> for the full design.</p>
+<p>To run a model from a config:</p>
+<div class="codehilite"><pre><span></span><code>conda<span class="w"> </span>activate<span class="w"> </span>pygetm<span class="w">  </span><span class="c1"># the loader needs pygetm, same as introspection</span>
+pygetm-config<span class="w"> </span>run<span class="w"> </span>config.yaml<span class="w"> </span>--stop<span class="w"> </span><span class="m">2020</span>-06-01
+<span class="c1"># or: python scripts/run_model.py config.yaml --stop 2020-06-01</span>
+</code></pre></div>
+
+<p><code>--dry-run</code> builds and starts the simulation without advancing it (useful to check a config
+actually constructs successfully). <code>loader.py</code>'s target-path grammar for <code>data_assignments</code>
+(<code>domain.&lt;attr&gt;</code>, <code>simulation.&lt;attr...&gt;</code>, <code>river.&lt;name&gt;.&lt;attr&gt;</code>,
+<code>open_boundary.&lt;variable&gt;.&lt;attr&gt;</code> per-tracer, <code>open_boundaries.&lt;field&gt;</code> plural
+for the barotropic z/u/v fields -- e.g. <code>kind: tpxo</code>) and its <code>array_like</code>/<code>pre_transform</code> handling are documented
+in the module's own docstring, including the known gaps (e.g. <code>pre_transform_expression</code> is
+rejected outright rather than evaluated, since running an arbitrary string from a config file
+is a real code-execution risk).</p>
+<p><code>pygetm-config run</code> also has a set of debugging flags in the spirit of OceanICU's own
+<code>run_model.py</code> CLI overrides (verified against that script): <code>--print-config</code>, <code>--list-output</code>,
+<code>--plot-domain [path]</code>, <code>--no-boundaries</code>/<code>--no-rivers</code>/<code>--no-output</code>, <code>--output-dir</code>,
+<code>--runtype</code>, <code>--profile [name]</code>, <code>--load-restart</code>/<code>--save-restart</code>, <code>--skip-unavailable-output</code>,
+<code>--log-level</code> (real user need: the config-driven abstraction makes it hard to see what actual
+pyGETM calls are happening underneath -- <code>loader.py</code> logs every one, with real resolved
+arguments, at INFO by default; <code>--log-level DEBUG</code> also shows one line per
+<code>open_boundaries</code>/<code>rivers</code> entry, not just a summary count — see <code>loader.py</code>'s module
+docstring "Debugging" note), <code>--dump-python [PATH]</code> (real user need: sometimes even the
+logged native calls aren't enough, and you want to actually set a breakpoint or add a print
+inside the real construction sequence — this writes a self-contained, standalone script
+implementing the config as literal <code>pygetm</code>/<code>pygetm.domain</code>/<code>pygetm.simulation</code> calls, no
+<code>pygetm_config</code> import needed to run it, then exits without running anything here; see
+<code>pygetm_config/codegen.py</code>'s module docstring for the "regenerate when the config changes,
+don't hand-maintain" scoping. The script is structured into real functions —
+<code>create_domain()</code>, <code>create_simulation(domain)</code>, <code>configure_output(sim)</code>, <code>run(sim)</code>, and a real
+<code>main()</code> that calls all four in order under <code>if __name__ == '__main__':</code> — mirroring OceanICU's
+own <code>run_model.py</code> exactly (including its own <code>main()</code>/<code>__main__</code> shape), not one long flat
+sequence of statements. The full validated config is written to a companion
+<code>&lt;name&gt;_config.yaml</code> file alongside the script (read back via <code>Path(__file__).parent</code>, so the
+pair stays runnable together regardless of the current working directory) instead of being
+embedded as one giant inline literal. The generated script has its
+own real <code>argparse</code> CLI —
+<code>--start</code>/<code>--stop</code>/<code>--dry-run</code>/<code>--load-restart</code>/<code>--save-restart</code>/<code>--skip-unavailable-output</code>
+are genuine runtime arguments of <em>that</em> script, defaulting to whatever was given to
+<code>--dump-python</code>, not fixed at generation time; the same generated file is rerunnable with
+different ones without regenerating. Any file/folder config field can reference <code>${VAR}</code>/<code>$VAR</code>
+(standard POSIX env-var syntax) instead of a hardcoded machine-specific path — kept literal all
+the way through validation and generation, resolved only at the point of actual file access (in
+both real execution and the generated script — see <code>loader.resolve_data_path</code>), so a config or a
+generated script + companion YAML stays copyable across machines; each machine supplies its own
+values via real env vars, <code>--data-root NAME=VALUE</code> (repeatable, on <em>both</em> <code>pygetm-config run</code> and
+every generated script's own CLI, always wins), or an optional <code>--data-roots-file</code> (a flat YAML
+file, no hostname-keying — only fills gaps not already exported, never overrides a real env var
+or <code>--data-root</code>; see <code>loader.apply_data_roots</code>). Genuinely bespoke steps (a real,
+project-specific need, e.g. rivers read from a live external file, not expressible as
+static YAML) can be included too via a <code>"path/to/file.py:function_name"</code> config field
+(same convention as <code>PYGETM_CONFIG_PROVIDERS</code>), at three distinct points in the pipeline:
+<code>&lt;role&gt;.script</code> (before the simulation object exists, e.g. <code>river_discharge.script</code> —
+<code>func(domain, config)</code>, real POSITIONING), <code>&lt;role&gt;.data_script</code> (after <code>data_assignments</code>,
+e.g. <code>river_discharge.data_script</code> — <code>func(sim, domain, config)</code>, real DATA — a second,
+distinct function on the same role, since e.g. river position and river discharge data
+are two separate steps mirroring OceanICU's own <code>cfg_rivers.py</code>'s real
+create()/data() split), and <code>post_data_script</code> (also after <code>data_assignments</code>, for
+anything that isn't role-specific, e.g. a substitution that reads an already-assigned
+field — <code>func(sim, domain, config)</code>; see <code>loader.run_post_data_script</code>'s own docstring
+for why this can't just run right after <code>sim</code> exists). See
+<code>loader.run_river_discharge_script</code>/<code>codegen._emit_river_discharge_script</code>,
+<code>loader.run_river_discharge_data_script</code>/<code>codegen._emit_river_discharge_data_script</code>,
+and <code>loader.run_post_data_script</code>/<code>codegen._emit_post_data_script</code>; the referenced
+function's real source is embedded, never an eval'd/exec'd string from the YAML), and a
+generic <code>--set KEY=VALUE</code> (repeatable) for ad hoc overrides of anything in the config — see
+<code>pygetm-config run --help</code>. Not every project-specific override oceanicu has (e.g. <code>--tpxo_dir</code>)
+is a dedicated flag here; <code>--set</code> covers that generically instead, since this tool is
+project-agnostic. See <a href="yaml-vs-python.html"><code>docs/yaml_vs_python.md</code></a> for why that split exists, and
+<code>OceanICU/oceanicu_3d</code> (a separate repo — <code>NSe/config/nse_from_oceanicu.yaml</code> +
+<code>driver/oceanicu_driver.py</code>) for a worked conversion of a real OceanICU config; this repo's own
+<code>examples/</code> only has project-agnostic material (see <a href="providers.html"><code>docs/providers.md</code></a> for why).</p>
+<h2 id="two-environments-introspection-vs-frontend">Two environments: introspection vs. frontend</h2>
+<p>Only <code>pygetm_config.schema.build_schema()</code> requires <code>pygetm</code> to be importable — nothing else in
+this package does, including either frontend (<code>pygetm_config.session</code>,
+<code>pygetm_config.frontends.textual_app</code>, <code>pygetm_config.frontends.web_app</code>). The intended split:</p>
+<ul>
+<li><strong>A pygetm-capable env</strong> (e.g. a conda env with <code>pygetm</code> installed): used only to regenerate
+  a schema snapshot, <code>pip install -e ".[introspect,dev]"</code> then <code>pygetm-config dump -o schema.json</code>.</li>
+<li><strong>Anywhere else, with no pygetm at all</strong>: <code>pip install -e ".[tui,dev]"</code> then
+  <code>pygetm-config edit --schema schema.json config.yaml</code> for the Textual frontend, or
+  <code>pip install -e ".[web,dev]"</code> then <code>pygetm-config web --schema schema.json config.yaml</code> for
+  the FastAPI web frontend (open the printed <code>http://127.0.0.1:8000</code> URL) — both run against
+  the same schema snapshot, pick whichever fits your terminal-vs-browser preference. <code>tui</code> and
+  <code>web</code> have zero import overlap with each other either, so installing one never drags in the
+  other's dependency.</li>
+</ul>
+<p>This is enforced, not just documented — see <code>.venv-tui</code> in development (a throwaway,
+gitignored venv with <code>pygetm</code> deliberately absent, used to develop/test both frontends so an
+accidental pygetm import fails loudly).</p>
+<h2 id="development">Development</h2>
+<div class="codehilite"><pre><span></span><code><span class="c1"># introspection side (needs a pygetm-capable env)</span>
+conda<span class="w"> </span>activate<span class="w"> </span>pygetm
+pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s2">&quot;.[introspect,dev]&quot;</span>
+pytest
+python<span class="w"> </span>scripts/dump_schema.py<span class="w">   </span><span class="c1"># writes dist/schema.json + template YAMLs</span>
+
+<span class="c1"># frontend side (must NOT have pygetm installed)</span>
+python3<span class="w"> </span>-m<span class="w"> </span>venv<span class="w"> </span>.venv-tui
+.venv-tui/bin/pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s2">&quot;.[tui,dev]&quot;</span>
+.venv-tui/bin/pytest
+</code></pre></div>
+
+<p>Tests that require a live <code>pygetm</code> import are marked <code>requires_pygetm</code>/guarded by
+<code>pytest.importorskip("pygetm")</code> and skip automatically if pygetm isn't importable (e.g. in
+<code>.venv-tui</code>). Tests that require <code>textual</code> (the Textual-driven <code>Pilot</code> tests) are guarded by
+<code>pytest.importorskip("textual")</code> and skip in the pygetm-only env. Running <code>pytest</code> in either
+env alone therefore only exercises what that env can actually support — run it in both to
+cover everything.</p></article></div></main>
+<footer class="foot"><div class="footin"><img src="./assets/logo_stacked.png" alt="Bolding &amp; Bruggeman">
+<div><p>Bolding &amp; Bruggeman · <a href="https://www.bolding-bruggeman.com">www.bolding-bruggeman.com</a> ·
+<a href="https://bolding.github.io/ocean-docs/">ocean-* documentation</a> · <a href="https://bolding.github.io/nesting-docs/">pyGETM nesting</a></p>
+<p>Generated from the pygetm-config documentation on 18 November 2026. pygetm-config itself is not public yet.</p></div></div></footer>
+</body></html>

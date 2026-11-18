@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Populating a `pygetm_config.providers` registry · pygetm-config</title>
+<meta name="description" content="Populating a `pygetm_config.providers` registry">
+<link rel="icon" href="./assets/logo_stacked.png">
+<link rel="stylesheet" href="./assets/style.css"><link rel="stylesheet" href="./assets/code.css"></head>
+<body>
+<header class="topbar"><div class="topin"><a class="brand" href="./index.html"><img src="./assets/logo_wide.png" alt="Bolding &amp; Bruggeman"><span>pygetm-config</span></a>
+<nav aria-label="Sections"><a href="index.html">Overview</a><a href="getting-started.html">Getting started</a><a href="full-picture.html">The full picture</a><a href="yaml-vs-python.html">YAML or Python</a><a href="providers.html" aria-current="page">Providers</a><a href="nesting.html">Nested setups</a><a href="examples.html">Examples</a></nav></div></header>
+<section class="band"><div class="bandin"><h1>Populating a `pygetm_config.providers` registry</h1></div></section>
+<main><div class="layout"><aside class="side"><h2>On this page</h2><ul><li><a href="#how-discovery-actually-works">How discovery actually works</a></li><li><a href="#worked-example-oceanicu">Worked example: OceanICU</a></li><li><a href="#a-different-project">A different project</a></li><li><a href="#summary">Summary</a></li></ul></aside><article class="doc"><h1 id="populating-a-pygetm_configproviders-registry">Populating a <code>pygetm_config.providers</code> registry</h1>
+<p><code>src/pygetm_config/providers.py</code> ships the generic <em>shape</em> of a data-provenance
+choice (a <code>source:</code>-discriminated <code>ChoiceSpec</code>, plus a shared <code>folder</code>/
+<code>folder_template</code>/<code>filename_template</code>/<code>start_date</code>/<code>end_date</code> base every provider
+gets for free) with <strong>zero concrete provider names</strong> -- deliberately, and
+enforced by a test (<code>test_no_concrete_provider_names_shipped</code>), since
+<code>pygetm-config</code> must stay independent of any one project (see
+<a href="yaml-vs-python.html"><code>docs/yaml_vs_python.md</code></a>'s "third category" section for why provider <em>choice</em>
+is data, not a pyGETM concept, and therefore doesn't belong in the core
+schema). This doc answers the two questions that were still open once that
+shape existed but nobody had actually used it: "how does a populated registry
+work, concretely, for OceanICU?" and "how would this look for a completely
+different project?"</p>
+<h2 id="how-discovery-actually-works">How discovery actually works</h2>
+<p><code>schema.build_schema()</code> calls <code>providers.discover_provider_sections()</code>, which
+looks in TWO places for a project's registered provider sections, and merges
+whatever it finds from either (or both) into the schema's own <code>sections</code>, as
+ordinary <code>Section</code>s -- from that point on they're indistinguishable from a
+core section: they show up in <code>pygetm-config dump</code>/<code>template</code>/<code>validate</code>/<code>edit</code>
+like anything else, get YAML-rendered under their (possibly dotted) key, and
+participate in normal validation.</p>
+<ol>
+<li><strong>The <code>pygetm_config.providers</code> entry-point group</strong> (Python's standard
+   <code>importlib.metadata.entry_points</code> mechanism) -- needs the registering
+   project to be pip-installed (editable or otherwise) with a
+   <code>[project.entry-points."pygetm_config.providers"]</code> table in its
+   <code>pyproject.toml</code>. The "proper" path once a project has real packaging.</li>
+<li><strong>The <code>PYGETM_CONFIG_PROVIDERS</code> environment variable</strong> -- a comma-separated
+   list of <code>path/to/file.py:function_name</code> (loaded directly off disk, via
+   <code>importlib.util.spec_from_file_location</code> -- no install, no <code>pyproject.toml</code>,
+   nothing needs to be on <code>sys.path</code>) or <code>importable.module:function_name</code>
+   (needs the module importable, e.g. via <code>PYTHONPATH</code>, but still no <code>pip
+   install</code>) entries. <strong>This is the answer to "how do I use a provider
+   registry without turning my project into an installable package": you
+   don't need to</strong> -- point this env var straight at the <code>.py</code> file:
+   <code>bash
+   export PYGETM_CONFIG_PROVIDERS=/path/to/OceanICU/oceanicu_3d/driver/oceanicu_providers.py:register_oceanicu_providers
+   pygetm-config validate some_config.yaml   # now sees hydrography/boundaries.*/meteo/river_discharge</code>
+   Verified working end to end against the real file, not just described here.
+   OceanICU's own <code>driver/oceanicu_driver.py</code> sets this env var automatically
+   (via <code>os.environ.setdefault</code>, pointing at its own <code>oceanicu_providers.py</code>),
+   so this manual export is only needed when invoking <code>pygetm-config</code> directly
+   against an OceanICU config, bypassing the driver.</li>
+</ol>
+<p>Each source must resolve to a zero-argument callable returning
+<code>dict[str, ChoiceSpec]</code> (role name -&gt; provider slot, built via
+<code>providers.make_provider_slot</code>).</p>
+<p>If neither source has anything registered -- the default for <code>pygetm-config</code>'s
+own dev environment, which intentionally has no project-specific package
+installed and no env var set -- <code>discover_provider_sections()</code> returns <code>{}</code>
+and <code>build_schema()</code> behaves exactly as if the mechanism didn't exist. Nothing
+about the core schema depends on any provider registry being present.</p>
+<p><strong>Collision safety</strong>: <code>build_schema()</code> checks every discovered provider role
+against the core section keys (<code>domain</code>, <code>open_boundaries</code>, <code>rivers</code>, <code>output</code>,
+...) and raises <code>ValueError</code> if one collides, rather than silently letting a
+provider role shadow a core section (or vice versa -- section lookup by key is a
+first-match search, so a silent collision would just make one of the two
+unreachable). <code>providers.discover_provider_sections()</code> separately raises if two
+<em>different</em> sources -- entry points, env-var entries, or a mix of both --
+register the same role name, for the same reason. Both are exercised by real
+tests, not just described here (see <code>tests/test_providers_extension_point.py</code>
+for the env-var mechanism itself and <code>tests/test_provider_registry_example.py</code>
+for a full worked registry).</p>
+<h2 id="worked-example-oceanicu">Worked example: OceanICU</h2>
+<p>A full, real registry using OceanICU's actual provider vocabulary lives in the
+OceanICU repo itself, not here: <code>OceanICU/oceanicu_3d/driver/oceanicu_providers.py</code>
+-- genuinely OceanICU-specific, so it lives with the project it describes;
+<code>pygetm-config</code> ships zero concrete provider names or project-specific example
+configs of its own (see the summary table below, and that directory's own
+<code>README.md</code>). It registers: <code>hydrography</code>
+(CMEMS/WOA), <code>boundaries.barotropic</code> (TPXO, with a <code>tpxo_folder</code> extra param),
+<code>boundaries.baroclinic</code> (CMEMS), <code>meteo</code> (ERA5, with
+<code>evaporation</code>/<code>shortwave_method</code>/<code>longwave_method</code> extras), and
+<code>river_discharge</code> (emorid, with <code>file</code>/<code>threshold</code> extras -- named
+<code>river_discharge</code>, not <code>rivers</code>, because the core schema already has a <code>rivers</code>
+section for open-boundary river <em>positions</em>; an earlier draft of this example
+used <code>rivers</code> and <code>build_schema()</code>'s own collision check caught it immediately,
+which is exactly the safety net it's there for).</p>
+<p>This file is not installed by <code>pygetm-config</code> itself, and doesn't need to be
+installed anywhere to work: <code>oceanicu_3d</code> is a script directory, not a
+packaged project, so it uses the <code>PYGETM_CONFIG_PROVIDERS</code> env var path (see
+above), not entry points. <code>driver/oceanicu_driver.py</code> sets that env var
+itself, automatically, before calling <code>build_schema()</code>:</p>
+<div class="codehilite"><pre><span></span><code><span class="nb">export</span><span class="w"> </span><span class="nv">PYGETM_CONFIG_PROVIDERS</span><span class="o">=</span>/path/to/OceanICU/oceanicu_3d/driver/oceanicu_providers.py:register_oceanicu_providers
+</code></pre></div>
+
+<p>If <code>oceanicu_3d</code> ever gains real packaging, the entry-point path becomes
+available too (no change needed in <code>oceanicu_providers.py</code> itself):</p>
+<div class="codehilite"><pre><span></span><code><span class="k">[project.entry-points.</span><span class="s2">&quot;pygetm_config.providers&quot;</span><span class="k">]</span>
+<span class="n">oceanicu</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;pygetm_config.oceanicu_providers:register_oceanicu_providers&quot;</span>
+</code></pre></div>
+
+<p>Either way <code>build_schema()</code> picks it up with no code change in
+<code>pygetm-config</code>. This repo's own <code>tests/test_providers_extension_point.py</code>
+proves the env-var mechanism end to end (using a small registry written to a
+temp file inside the test, not reaching across repos into OceanICU's, since
+<code>pygetm-config</code>'s test suite must run standalone without the OceanICU repo
+present) -- the same mechanism is what OceanICU's own driver relies on for
+real, surfacing <code>hydrography</code>/<code>boundaries.barotropic</code>/<code>boundaries.baroclinic</code>/
+<code>meteo</code>/<code>river_discharge</code> in every <code>build_schema()</code> call it makes.</p>
+<p>What a validated config against the OceanICU registry looks like -- note
+<code>meteo:</code> keeps BOTH <code>ERA5:</code> and <code>CMIP6:</code> present at once, only <code>source:</code>
+picking which is active. This isn't provider-specific: EVERY <code>ChoiceSpec</code> in
+the schema now works this way (see <a href="full-picture.html"><code>docs/overview.md</code></a>) -- providers are just
+the case that originally motivated it.</p>
+<div class="codehilite"><pre><span></span><code><span class="nt">hydrography</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">source</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">CMEMS</span>
+<span class="w">  </span><span class="nt">CMEMS</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">folder</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/data/boundaries/init_data/nse/</span>
+<span class="w">  </span><span class="nt">WOA</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">folder</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/data/WOA</span>
+<span class="nt">boundaries</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">barotropic</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">source</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">TPXO</span>
+<span class="w">    </span><span class="nt">TPXO</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">tpxo_folder</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/data/TPXO9</span>
+<span class="w">    </span><span class="nt">CMEMS</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">folder</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/data/CMEMS_barotropic</span>
+<span class="nt">meteo</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">source</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ERA5</span>
+<span class="w">  </span><span class="nt">ERA5</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">folder</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/data/ERA5</span>
+<span class="w">    </span><span class="nt">evaporation</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">    </span><span class="nt">shortwave_method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
+<span class="w">    </span><span class="nt">longwave_method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
+<span class="w">  </span><span class="nt">CMIP6</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">folder</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/data/CMIP6</span>
+<span class="w">    </span><span class="nt">evaporation</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">    </span><span class="nt">shortwave_method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
+<span class="w">    </span><span class="nt">longwave_method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
+<span class="nt">river_discharge</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">source</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">emorid</span>
+<span class="w">  </span><span class="nt">emorid</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">folder</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/data/EMORID</span>
+<span class="w">    </span><span class="nt">file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">EMORID_1990_2024.nc</span>
+<span class="w">    </span><span class="nt">threshold</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0</span>
+</code></pre></div>
+
+<p>This is exactly the shape <code>NSe/config/nse_from_oceanicu.yaml</code> (OceanICU's own
+real, schema-validated config) uses today -- <code>hydrography</code>,
+<code>boundaries.barotropic</code>/<code>boundaries.baroclinic</code>, <code>meteo</code>, and
+<code>river_discharge</code> are all validated against this registry, via
+<code>PYGETM_CONFIG_PROVIDERS</code> (set automatically by <code>oceanicu_driver.py</code>, see
+above).</p>
+<h3 id="switching-data-source-per-run-folder-nothing-else-edited">Switching data source per run-folder, nothing else edited</h3>
+<p>Every <code>ChoiceSpec</code> in the schema (not just providers -- <code>vertical_coordinates</code>,
+<code>radiation</code>, <code>domain</code>, the <code>output.files</code> per-file type choice, everything)
+keeps EVERY alternative's fields present at once, each under its own
+<code>&lt;label&gt;:</code> sub-key, rather than only the chosen one at the top level. Real,
+raised need: different run-folders should be able to share one base config
+and switch data source (<code>source: ERA5</code> vs <code>source: CMIP6</code>) per folder, purely
+by changing that one field, not by deleting/retyping a whole config block
+each time -- see <a href="full-picture.html"><code>docs/overview.md</code></a> for why this became the universal
+convention rather than a providers-only special case. <code>pygetm-config
+template</code> emits EVERY alternative's fields already populated, and
+<code>pygetm-config validate</code>/<code>yaml_parse.validate_config</code> reads whichever
+sub-key matches the active <code>source:</code>, validates only that one, and preserves
+every other sub-key's block verbatim (unvalidated) in the output -- so
+flipping <code>source:</code> back later doesn't lose the other values either. Falls
+back to the old flat shape for backward compatibility if the active choice's
+own sub-key isn't present (e.g. a config written before this convention
+existed).</p>
+<h2 id="a-different-project">A different project</h2>
+<p><a href="examples/generic_project_providers.py.html"><code>examples/generic_project_providers.py</code></a> (in this repo) is a second, unrelated,
+hypothetical project ("CoastalApp") registering its own provider vocabulary:
+<code>meteo</code> sourced from <code>GFS</code> (a forecast-cycle product, with
+<code>cycle_hour</code>/<code>forecast_hours</code> extras -- genuinely different shape from ERA5's
+continuous reanalysis archive, not just a different provider name for the same
+shape) and a single combined <code>boundaries</code> role sourced from <code>HYCOM</code> (one
+reanalysis product covering both barotropic and baroclinic fields, unlike
+OceanICU's split TPXO-for-tides/CMEMS-for-everything-else). Neither this
+project's registry nor OceanICU's imports or references the other --
+<code>providers.py</code>'s contract (<code>make_provider_slot</code>/<code>discover_provider_sections</code>)
+carries no assumptions about either. This is the one project-specific-<em>looking</em>
+example <code>pygetm-config</code> does ship, precisely because it's explicitly
+hypothetical rather than describing any real project -- consistent with the
+package shipping zero real provider names.</p>
+<p><code>tests/test_provider_registry_example.py::
+test_build_schema_discovers_coastalapp_providers</code> proves this registry works on
+its own in <code>build_schema()</code>.</p>
+<p>One honest wrinkle worth stating explicitly: this example and OceanICU's real
+one both register a <code>meteo</code> role, since "where does weather forcing come from"
+is an obvious name any project would reach for independently. In practice you
+install exactly <em>one</em> project's provider package into the environment you
+build that project's schema in -- <code>pygetm_config.providers</code> was never meant to
+merge two unrelated projects' registries into one live schema at once, only to
+let a single project plug its own vocabulary into pygetm-config's generic
+mechanism. If two happened to be installed simultaneously anyway,
+<code>discover_provider_sections()</code>'s existing conflict check catches the role-name
+collision loudly (raises <code>ValueError</code>) rather than silently letting one
+project's definition shadow the other's --
+<code>test_two_projects_with_same_role_name_collide_loudly</code> proves this concretely
+(using the CoastalApp example plus a second synthetic registry defined inline
+in the test), not just the fully-synthetic case in
+<code>test_providers_extension_point.py</code>.</p>
+<h2 id="summary">Summary</h2>
+<table>
+<thead>
+<tr>
+<th>Question</th>
+<th>Answer</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Does <code>pygetm-config</code> ship any real provider names?</td>
+<td>No -- <code>providers.py</code> is shape-only, enforced by a test. <a href="examples/generic_project_providers.py.html"><code>examples/generic_project_providers.py</code></a> is explicitly hypothetical, not a real project.</td>
+</tr>
+<tr>
+<td>How does a project add its own?</td>
+<td>Register a zero-arg callable returning <code>dict[str, ChoiceSpec]</code> under the <code>pygetm_config.providers</code> entry-point group in the project's own package.</td>
+</tr>
+<tr>
+<td>What does <code>build_schema()</code> do with it?</td>
+<td>Merges the returned sections in automatically; raises loudly on a role name colliding with a core section key.</td>
+</tr>
+<tr>
+<td>What if two unrelated projects are both installed?</td>
+<td><code>discover_provider_sections()</code> raises loudly on a role name collision between them, rather than silently picking one.</td>
+</tr>
+<tr>
+<td>Can a config keep multiple sources' data and just switch <code>source:</code>?</td>
+<td>Yes -- this is how every <code>ChoiceSpec</code> in the schema works now, not just providers: every alternative's fields stay present (each under its own <code>&lt;label&gt;:</code> sub-key) rather than only the active one; real motivating need is different run-folders sharing one base config while pointing at different data sources. See <a href="full-picture.html"><code>docs/overview.md</code></a>.</td>
+</tr>
+<tr>
+<td>Where's a real, working example?</td>
+<td><code>OceanICU/oceanicu_3d/driver/oceanicu_providers.py</code> (a separate repo -- OceanICU's actual vocabulary) and, in this repo, <a href="examples/generic_project_providers.py.html"><code>examples/generic_project_providers.py</code></a> (a different, hypothetical project's, exercised by <code>tests/test_provider_registry_example.py</code>).</td>
+</tr>
+<tr>
+<td>Has OceanICU actually adopted this yet?</td>
+<td>Yes -- <code>driver/oceanicu_driver.py</code> registers <code>oceanicu_providers.py</code> via <code>PYGETM_CONFIG_PROVIDERS</code> automatically, and every real domain config (<code>NSe/config/nse_from_oceanicu.yaml</code> and its siblings) validates <code>hydrography</code>/<code>boundaries.*</code>/<code>meteo</code>/<code>river_discharge</code> against it.</td>
+</tr>
+</tbody>
+</table></article></div></main>
+<footer class="foot"><div class="footin"><img src="./assets/logo_stacked.png" alt="Bolding &amp; Bruggeman">
+<div><p>Bolding &amp; Bruggeman · <a href="https://www.bolding-bruggeman.com">www.bolding-bruggeman.com</a> ·
+<a href="https://bolding.github.io/ocean-docs/">ocean-* documentation</a> · <a href="https://bolding.github.io/nesting-docs/">pyGETM nesting</a></p>
+<p>Generated from the pygetm-config documentation on 18 November 2026. pygetm-config itself is not public yet.</p></div></div></footer>
+</body></html>

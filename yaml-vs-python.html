@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>What belongs in YAML vs. what belongs in a project driver script · pygetm-config</title>
+<meta name="description" content="What belongs in YAML vs. what belongs in a project driver script">
+<link rel="icon" href="./assets/logo_stacked.png">
+<link rel="stylesheet" href="./assets/style.css"><link rel="stylesheet" href="./assets/code.css"></head>
+<body>
+<header class="topbar"><div class="topin"><a class="brand" href="./index.html"><img src="./assets/logo_wide.png" alt="Bolding &amp; Bruggeman"><span>pygetm-config</span></a>
+<nav aria-label="Sections"><a href="index.html">Overview</a><a href="getting-started.html">Getting started</a><a href="full-picture.html">The full picture</a><a href="yaml-vs-python.html" aria-current="page">YAML or Python</a><a href="providers.html">Providers</a><a href="nesting.html">Nested setups</a><a href="examples.html">Examples</a></nav></div></header>
+<section class="band"><div class="bandin"><h1>What belongs in YAML vs. what belongs in a project driver script</h1></div></section>
+<main><div class="layout"><aside class="side"><h2>On this page</h2><ul><li><a href="#the-principle">The principle</a></li><li><a href="#a-third-category-data-provenance-which-is-neither-of-the-above">A third category: data provenance, which is neither of the above</a></li><li><a href="#what-this-means-in-practice-for-do-we-need-a-different-run_modelpy-per-setup">What this means in practice for &quot;do we need a different run_model.py per setup?&quot;</a></li><li><a href="#worked-example-converting-nse_model_configyaml">Worked example: converting nse_model_config.yaml</a></li></ul></aside><article class="doc"><h1 id="what-belongs-in-yaml-vs-what-belongs-in-a-project-driver-script">What belongs in YAML vs. what belongs in a project driver script</h1>
+<p>pyGETM configuration is genuinely two-folded, and pretending otherwise would be
+dishonest about how real setups work. <code>pygetm-config</code> covers one half well; the
+other half is, and should stay, Python. This doc states the dividing line
+precisely, using OceanICU's real <code>run_model.py</code>/<code>cfg_*.py</code> as the concrete
+reference (verified directly against that source, not from memory) since it's the
+best available example of a real, working setup that mixes both.</p>
+<h2 id="the-principle">The principle</h2>
+<p><strong>YAML (validated by <code>pygetm_config</code>'s schema)</strong>: any value that plugs directly
+into a typed pyGETM API parameter, once you already know <em>what</em> that value is.
+Grid size, physics/numerics constants, which strategy object to use and its
+parameters, open-boundary/river <em>positions</em>, output file/variable selections,
+run timing. This is "what should the model do," expressed as data. It's exactly
+what <code>PygetmConfigSchema</code> models, and it's genuinely setup-independent in shape —
+only the <em>values</em> differ between setups (confirmed directly: all five of
+OceanICU's <code>*_model_config.yaml</code> files are structurally byte-identical, only leaf
+values differ).</p>
+<p><strong>A project driver script (a <code>run_model.py</code>, one per project — possibly one per
+group of setups)</strong>: anything that requires <em>interpreting</em> an external,
+non-pyGETM-native data source or convention, or that is genuinely dynamic/
+data-dependent rather than a fixed choice from a menu. This is "how do I obtain
+the raw ingredients," expressed as code. Two concrete categories:</p>
+<ol>
+<li>
+<p><strong>Reading a specific file with a specific, non-generic convention</strong> — the
+   <em>general</em> case of this stays Python (see below for one specific case that
+   turned out not to). OceanICU's <code>_create_domain_nse</code> (<code>run_model.py</code>) reads
+   bathymetry via:
+   <code>python
+   with netCDF4.Dataset(cfg.domain.path) as nc:
+       nc.set_auto_mask(False)
+       domain = pygetm.domain.create_spherical(
+           lon=nc["lon"][:], lat=nc["lat"][:],
+           H=nc["depth_rx0_0p20"][...], mask=nc["ocean_mask"][...], z0=0.01,
+       )</code>
+   <code>_create_domain_amm7</code> reads the <em>same conceptual thing</em> — a bathymetry file —
+   with different variable names: <code>bathymetry</code> instead of <code>depth_rx0_0p20</code>, mask
+   <em>inferred</em> from <code>np.ma.masked_equal(H, -10.0)</code> instead of a separate
+   <code>ocean_mask</code> variable, plus a follow-up <code>domain.mask_indices(1, 2, 353, 354)</code>
+   call. The variable-naming and mask-convention difference between these two
+   turned out to be <em>fully</em> generalizable — it's just which variables to read and
+   how to derive water/land, not a difference in <em>behavior</em> — so <code>pygetm-config</code>
+   now ships a <code>BathymetryFile</code> choice under <code>domain:</code> (<code>schema.
+   _build_bathymetry_file_choice</code>, <code>loader.build_domain_from_bathymetry_file</code>)
+   with <code>path</code>/<code>depth_variable</code>/
+   <code>lon_variable</code>+<code>lat_variable</code> (or <code>x_variable</code>+<code>y_variable</code>)/<code>mask_variable</code>/
+   <code>mask_fill_value</code>/<code>z0</code> fields that expresses both conventions as data, verified
+   against both real files (synthetic nse-style and amm7-style NetCDFs in
+   <code>tests/test_loader.py</code>). <code>_create_domain_amm7</code>'s trailing
+   <code>domain.mask_indices(1, 2, 353, 354)</code> call is a genuinely <em>different</em> kind of
+   thing — an ad hoc, setup-specific manual mask correction, not part of "reading
+   the file" — and is NOT covered by <code>BathymetryFile</code>; a setup needing that still
+   writes its own driver code calling <code>loader.build_domain_from_bathymetry_file</code>
+   (or <code>build_domain</code>) and then patching the result, same as any other case where
+   <code>domain</code> is built outside the loader. <code>pygetm-config</code>'s
+   <code>DataSourceSpec.role="domain_grid_field"</code> remains schema-only intent (see
+   <code>model.py</code>'s docstring) for the genuinely bespoke cases this doesn't cover —
+   it was never meant to replace bespoke driver code entirely, just this one
+   common, generalizable sub-case of it.</p>
+</li>
+<li>
+<p><strong>Genuinely dynamic, data-dependent content.</strong> OceanICU's rivers are <em>not</em> a
+   static list anywhere. <code>cfg_rivers.py</code> opens an EMORID/JRC NetCDF, computes
+   <code>valid_river = ds[Qmean_name] &gt; threshold</code>, filters further by
+   <code>domain.contains(lon, lat)</code>, and calls <code>add_by_location</code> once per surviving
+   index — the <em>set</em> of rivers depends on the threshold and the domain's exact
+   footprint. Freezing this into a static YAML list would silently lose the
+   dynamic filtering (a bathymetry/domain change would need someone to
+   remember to regenerate the list by hand). This has to stay a loop in Python.</p>
+</li>
+</ol>
+<h2 id="a-third-category-data-provenance-which-is-neither-of-the-above">A third category: data <em>provenance</em>, which is neither of the above</h2>
+<p>OceanICU's <code>hydrography</code>/<code>boundaries.{barotropic,baroclinic}</code>/<code>meteo</code>/<code>rivers</code>
+sections describe <em>where forcing data comes from</em> — <code>source: CMEMS|WOA|TPXO|...</code>,
+each with its own <code>folder</code>/<code>folder_template</code>/<code>filename_template</code>
+(<code>{setup}</code>/<code>{model}</code>/<code>{scenario}</code>/<code>{start_date}</code>/<code>{end_date}</code> placeholders,
+confirmed via <code>cfg_utils.py</code>'s <code>resolve_folder</code>/<code>resolve_path</code>) and often a date
+range. This is genuinely <em>data</em>, not code — but it's not a pyGETM concept either
+(pyGETM only ever sees a final resolved file path). <code>pygetm_config.providers</code>
+exists for exactly this: a generic <code>source:</code>-discriminated building block with
+zero concrete provider names shipped, because CMEMS/WOA/TPXO/ERA5/EMORID are
+OceanICU-specific, not general pyGETM concepts.
+<code>OceanICU/oceanicu_3d/driver/oceanicu_providers.py</code> (a separate repo)
+is a real, populated OceanICU registry (CMEMS/WOA/TPXO/ERA5/CMIP6/emorid as
+real <code>ChoiceSpec</code> entries), plus this repo's own
+<a href="examples/generic_project_providers.py.html"><code>examples/generic_project_providers.py</code></a>, a second, different hypothetical
+project's registry proving the mechanism is genuinely project-agnostic — see
+<a href="providers.html"><code>docs/providers.md</code></a> for the full writeup. <strong>Not installed as a real entry
+point</strong> — <code>oceanicu_3d</code> still has no <code>pyproject.toml</code> to hang one off — but
+actively registered anyway via the zero-packaging <code>PYGETM_CONFIG_PROVIDERS</code>
+env var, which <code>oceanicu_driver.py</code>'s own <code>main()</code> sets automatically before
+calling <code>build_schema()</code>. This means <code>nse_from_oceanicu.yaml</code>'s <code>hydrography:</code>/
+<code>boundaries.*:</code>/<code>river_discharge:</code>/<code>meteo:</code> sections ARE genuinely
+schema-validated today (a deliberately-invalid <code>hydrography.source</code> value is
+caught with a real <code>ValidationError</code>, not silently ignored) — every real
+domain config validates cleanly against this registry with zero manual
+<code>export</code> needed, since <code>oceanicu_driver.py</code> sets the env var itself. Turning a
+chosen provider entry into an actual <code>pygetm.input.from_nc(...)</code> call doesn't
+need new machinery, though -- the
+existing <code>data_assignments:</code> section (<code>kind: file</code> + <code>pre_transform_scale</code>/
+<code>pre_transform_offset</code>) already does exactly that generically, verified
+against real ERA5 files for <code>nse_from_oceanicu.yaml</code>'s meteo forcing
+(<code>simulation.airsea.t2m</code>/<code>d2m</code>/<code>u10</code>/<code>v10</code>/<code>sp</code>/<code>tcc</code>, with <code>-273.15</code> offsets
+converting ERA5's Kelvin to pyGETM's expected °C) -- see that file's
+<code>data_assignments:</code> block and comments. What's still future work is only
+<em>automating</em> that: deriving those six entries from <code>providers.meteo</code>'s
+abstract <code>source: ERA5, folder: ...</code> instead of writing them by hand once per
+setup, which really is provider-specific (ERA5's real file-naming convention,
+which fields need which unit conversion) and not a generic pygetm-config
+capability.</p>
+<h2 id="what-this-means-in-practice-for-do-we-need-a-different-run_modelpy-per-setup">What this means in practice for "do we need a different run_model.py per setup?"</h2>
+<p>Yes, in general — but the <em>pyGETM-schema-covered</em> part of the driver doesn't
+need to differ, because <code>loader.py</code>'s functions each take an already-built
+<code>domain</code>/<code>sim</code> as an argument rather than constructing it internally:</p>
+<div class="codehilite"><pre><span></span><code><span class="n">build_domain</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">schema</span><span class="p">)</span>                    <span class="c1"># generic path, OR build your own:</span>
+<span class="n">add_open_boundaries</span><span class="p">(</span><span class="n">domain</span><span class="p">,</span> <span class="n">config</span><span class="p">,</span> <span class="n">schema</span><span class="p">)</span>      <span class="c1"># domain from ANY source</span>
+<span class="n">add_rivers</span><span class="p">(</span><span class="n">domain</span><span class="p">,</span> <span class="n">config</span><span class="p">,</span> <span class="n">schema</span><span class="p">)</span>               <span class="c1"># (built by loader, or by hand)</span>
+<span class="n">build_simulation</span><span class="p">(</span><span class="n">domain</span><span class="p">,</span> <span class="n">config</span><span class="p">,</span> <span class="n">schema</span><span class="p">)</span>
+<span class="n">apply_data_assignments</span><span class="p">(</span><span class="n">sim</span><span class="p">,</span> <span class="n">domain</span><span class="p">,</span> <span class="n">config</span><span class="p">,</span> <span class="n">schema</span><span class="p">)</span>
+<span class="n">configure_output</span><span class="p">(</span><span class="n">sim</span><span class="p">,</span> <span class="n">config</span><span class="p">,</span> <span class="n">schema</span><span class="p">)</span>
+<span class="n">start_simulation</span><span class="p">(</span><span class="n">sim</span><span class="p">,</span> <span class="n">config</span><span class="p">,</span> <span class="n">schema</span><span class="p">)</span>
+<span class="n">run_loop</span><span class="p">(</span><span class="n">sim</span><span class="p">,</span> <span class="n">config</span><span class="p">,</span> <span class="n">stop</span><span class="p">)</span>
+</code></pre></div>
+
+<p>For OceanICU's <em>nse</em>/<em>amm7</em>-style setups specifically, even the first line stays
+generic now — <code>build_domain(config, schema)</code> reads <code>domain:</code>'s own <code>BathymetryFile</code>
+choice and handles both conventions, so <code>oceanicu_driver.py</code> (in
+<code>OceanICU/oceanicu_3d/driver/</code> -- see below) no longer has its own
+domain-building code at all. A project driver only needs to replace the first
+line — build <code>domain</code> however the project needs — for the genuinely bespoke
+residual: a manual mask correction like <code>_create_domain_amm7</code>'s
+<code>domain.mask_indices(...)</code> call, or a data source that isn't "a NetCDF file with
+named variables" at all. <strong>Only that residual and the river-loading loop need to
+differ per project</strong> in the general case; the boundary <em>positions</em>, physics
+parameters, and output configuration move fully into YAML and stop needing
+Python at all — a genuine improvement over hardcoding them per-setup in
+<code>cfg_boundaries.py</code> as OceanICU does today (see the worked conversion below).</p>
+<h2 id="worked-example-converting-nse_model_configyaml">Worked example: converting <code>nse_model_config.yaml</code></h2>
+<p>The full converted file and its accompanying driver live in the
+OceanICU repo, not here (they're genuinely OceanICU-specific, unlike the
+project-agnostic material this repo ships) — see
+<code>OceanICU/oceanicu_3d/NSe/config/nse_from_oceanicu.yaml</code> and
+<code>OceanICU/oceanicu_3d/driver/oceanicu_driver.py</code> (needed only for rivers
+-- domain-building is fully generic, see above), plus that directory's
+<code>README.md</code>. Summary of what moved where:</p>
+<table>
+<thead>
+<tr>
+<th>OceanICU today</th>
+<th>Where it lives now</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>momentum.{An,Am,cnpar}</code>, vertical_coordinates, internal_pressure, <code>simulation.{runtype,Dcrit,Dmin}</code>, <code>runtime.{timestep,split_factor}</code>, <code>switches.*</code></td>
+<td><strong>YAML</strong>, <code>pygetm-config</code>-validated, direct value mapping</td>
+</tr>
+<tr>
+<td><code>momentum.avmol</code></td>
+<td><strong>YAML</strong>, but note: pyGETM's actual parameter is <code>avmmol</code> (<code>Momentum.__init__</code>, verified) — OceanICU's config uses a name that no longer matches pyGETM's own API. Concrete evidence pyGETM's API moves faster than downstream configs.</td>
+</tr>
+<tr>
+<td><code>simulation.calendar</code></td>
+<td><strong>Nowhere in the new schema</strong> — <code>Simulation.__init__</code> has no <code>calendar</code> parameter; this was presumably consumed elsewhere in OceanICU's own date-handling, not passed to pyGETM directly. Flagged as unmapped rather than silently dropped.</td>
+</tr>
+<tr>
+<td>Open boundary positions (<code>cfg_boundaries.py</code>'s 9 hardcoded <code>add_by_index</code> calls for "nse")</td>
+<td><strong>YAML</strong>, <code>open_boundaries:</code> collection — a genuine improvement: this was Python-only before (setup name → <code>if</code> branch → hardcoded indices), now it's data like everything else in that section.</td>
+</tr>
+<tr>
+<td><code>output.{meteo,tides,barotropic,baroclinic}</code> booleans + separate <code>output.yaml</code> variable-list file</td>
+<td><strong>YAML</strong>, <code>output.files:</code> — collapsed into explicit file entries with their variable lists inlined (see the worked file), since <code>pygetm-config</code>'s <code>output.files</code> collection doesn't have oceanicu's separate boolean-flag/variable-list-file split.</td>
+</tr>
+<tr>
+<td>Bathymetry reading (<code>_create_domain_nse</code>, NetCDF variable names, mask convention)</td>
+<td><strong>YAML</strong>, <code>domain:</code>'s <code>BathymetryFile</code> choice — turned out to be fully generic (see above); <code>oceanicu_driver.py</code> no longer builds the domain itself</td>
+</tr>
+<tr>
+<td>Rivers (EMORID read + threshold filter)</td>
+<td><strong>Stays Python</strong> — <code>oceanicu_driver.py</code>'s own <code>driver/scripts/rivers.py</code></td>
+</tr>
+<tr>
+<td><code>hydrography</code>/<code>boundaries.*.{source,...}</code>/<code>meteo</code>/<code>river_discharge.*.{source,...}</code> data-provenance sections</td>
+<td><strong>YAML, schema-validated</strong> — real <code>oceanicu_providers.py</code> registry, registered via <code>PYGETM_CONFIG_PROVIDERS</code> (<code>oceanicu_driver.py</code> sets it automatically); actually wiring a chosen provider's data into <code>data_assignments:</code> is still hand-written per setup (see above), just the provider <em>choice</em> itself is validated now</td>
+</tr>
+</tbody>
+</table></article></div></main>
+<footer class="foot"><div class="footin"><img src="./assets/logo_stacked.png" alt="Bolding &amp; Bruggeman">
+<div><p>Bolding &amp; Bruggeman · <a href="https://www.bolding-bruggeman.com">www.bolding-bruggeman.com</a> ·
+<a href="https://bolding.github.io/ocean-docs/">ocean-* documentation</a> · <a href="https://bolding.github.io/nesting-docs/">pyGETM nesting</a></p>
+<p>Generated from the pygetm-config documentation on 18 November 2026. pygetm-config itself is not public yet.</p></div></div></footer>
+</body></html>

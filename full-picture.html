@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>The full picture · pygetm-config</title>
+<meta name="description" content="The full picture">
+<link rel="icon" href="./assets/logo_stacked.png">
+<link rel="stylesheet" href="./assets/style.css"><link rel="stylesheet" href="./assets/code.css"></head>
+<body>
+<header class="topbar"><div class="topin"><a class="brand" href="./index.html"><img src="./assets/logo_wide.png" alt="Bolding &amp; Bruggeman"><span>pygetm-config</span></a>
+<nav aria-label="Sections"><a href="index.html">Overview</a><a href="getting-started.html">Getting started</a><a href="full-picture.html" aria-current="page">The full picture</a><a href="yaml-vs-python.html">YAML or Python</a><a href="providers.html">Providers</a><a href="nesting.html">Nested setups</a><a href="examples.html">Examples</a></nav></div></header>
+<section class="band"><div class="bandin"><h1>The full picture</h1></div></section>
+<main><div class="layout"><aside class="side"><h2>On this page</h2><ul><li><a href="#the-pipeline-end-to-end">The pipeline, end to end</a></li><li><a href="#why-two-environments-concretely">Why two environments, concretely</a></li><li><a href="#why-a-version-qualified-schema-snapshot-not-just-one-schemajson">Why a version-qualified schema snapshot, not just one schema.json</a></li><li><a href="#every-choicespec-keeps-every-alternative-present-always">Every ChoiceSpec keeps every alternative present, always</a></li><li><a href="#a-tour-of-one-real-config-nse_from_oceanicuyaml">A tour of one real config: nse_from_oceanicu.yaml</a></li><li><a href="#the-lifecycle-for-a-brand-new-project-not-just-oceanicu">The lifecycle for a brand-new project (not just OceanICU)</a></li><li><a href="#whats-still-explicitly-out-of-scope">What&#x27;s still explicitly out of scope</a></li></ul></aside><article class="doc"><h1 id="the-full-picture">The full picture</h1>
+<p>The other docs each answer one focused question (<code>PLAN.md</code>: why does this data
+model look the way it does; <a href="yaml-vs-python.html"><code>docs/yaml_vs_python.md</code></a>: what goes in a config
+file vs. a driver script; <a href="providers.html"><code>docs/providers.md</code></a>: how does a project plug in its
+own data-provenance vocabulary). This doc is the missing zoomed-out view tying
+them together: what actually happens, in order, from "pyGETM is installed" to
+"a simulation is running from a validated config" — written after everything
+below existed, not as a plan for what would exist.</p>
+<h2 id="the-pipeline-end-to-end">The pipeline, end to end</h2>
+<div class="codehilite"><pre><span></span><code> ┌─────────────────┐
+ │  live pygetm     │   introspects Domain, Simulation, boundary/river
+ │  installation    │   collections, output requests, pluggable strategy
+ └────────┬─────────┘   objects (vertical_coordinates, airsea, ...)
+          │
+          │ schema.build_schema()            &lt;- ONLY function needing pygetm
+          ▼
+ ┌──────────────────────────┐
+ │   PygetmConfigSchema      │  sections + enums + schema_fingerprint +
+ │   (in-memory, or JSON     │  pygetm_version/pygetm_git_commit + warnings
+ │   via `pygetm-config dump`)│
+ └──┬───────────────────┬───┘
+    │                   │
+    │ yaml_template.py  │ session.py + frontends/textual_app.py
+    │ write_template()  │ (edits a validated config against the schema;
+    │                   │  needs the tui extra, NOT pygetm -- can run from
+    │                   │  a JSON snapshot in a completely separate env)
+    ▼                   ▼
+ tiered YAML       interactively-edited
+ template               config.yaml
+    │                   │
+    └─────────┬─────────┘
+              ▼
+     yaml_parse.validate_config()   &lt;- needs the schema object, not pygetm itself
+              │
+              ▼
+      validated config dict
+              │
+              ▼
+      pygetm_config.loader          &lt;- needs pygetm again, to actually build things
+   build_domain -&gt; add_open_boundaries -&gt; add_rivers -&gt; build_simulation -&gt;
+   apply_data_assignments -&gt; configure_output -&gt; start_simulation -&gt; run_loop
+   -&gt; finish_simulation
+              │
+              ▼
+      a running pyGETM simulation
+</code></pre></div>
+
+<p><code>pygetm-config run config.yaml --stop ...</code> (or <code>scripts/run_model.py</code>) drives
+the whole right-hand path (validate -&gt; loader) in one command. <code>pygetm-config
+edit</code> only ever touches the left/middle path (template -&gt; TUI -&gt; config.yaml)
+and can run in an environment that has never seen pygetm at all.</p>
+<p><code>pygetm_config.codegen</code> (<code>pygetm-config run config.yaml --dump-python [PATH]</code>)
+is a side branch off the validated-config box above: instead of feeding it to
+<code>loader.py</code> for real execution, it renders the SAME resolved values as a
+literal, standalone Python script (no <code>pygetm_config</code> import needed to run
+it) — real breakpoints, real prints, no config-driven abstraction between you
+and the actual <code>pygetm.simulation.Simulation(...)</code> call that's failing. It
+reuses <code>loader.py</code>'s own value-resolution logic (<code>_coerce_value</code>,
+<code>_resolve_choice</code>, the strategy-slot registries) rather than re-deriving "what
+does this config resolve to" a second time, so there's still only one place
+that logic lives. Deliberately a one-off debugging aid, not a second source of
+truth: regenerate from the config next time rather than hand-maintaining the
+output.</p>
+<h2 id="why-two-environments-concretely">Why two environments, concretely</h2>
+<p>Only <code>schema.build_schema()</code> imports <code>pygetm</code> (directly or transitively) —
+every other module (<code>model</code>, <code>session</code>, <code>serialize</code>, <code>yaml_template</code>,
+<code>yaml_parse</code>, both frontends, <code>providers</code>) works from an already-built
+<code>PygetmConfigSchema</code> object with zero pygetm dependency. This is <em>enforced</em>,
+not just an aspiration: <code>.venv-tui</code> is a throwaway dev venv with pygetm
+deliberately absent, used to develop and test the frontend so an accidental
+<code>import pygetm</code> fails loudly during development rather than only being
+noticed later. In practice this means: regenerate <code>dist/schema.json</code> once from
+a pygetm-capable environment (<code>pygetm-config dump</code>), then edit configs against
+that snapshot anywhere else — a laptop with no pygetm build toolchain at all,
+for instance.</p>
+<h2 id="why-a-version-qualified-schema-snapshot-not-just-one-schemajson">Why a version-qualified schema snapshot, not just one <code>schema.json</code></h2>
+<p>Two different pyGETM builds can expose an <em>identical</em> configurable surface —
+most commits are bug fixes or internal refactors that don't touch any
+constructor signature or docstring the introspection engine reads.
+<code>schema_fingerprint</code> is a content hash of <code>sections</code>+<code>enums</code> <strong>only</strong>
+(excluding <code>pygetm_version</code>/<code>pygetm_git_commit</code>/<code>warnings</code>, see
+<code>serialize.compute_fingerprint</code>), so it's the real "is this config still valid
+against the schema I have now" signal — a version or commit string alone would
+say "different" far more often than the configurable surface actually changed.
+<code>scripts/dump_schema.py</code> writes to <code>dist/&lt;version&gt;[+&lt;commit&gt;]/schema.json</code>
+<em>and</em> a <code>dist/schema.json</code> "latest" copy, so snapshots from different pyGETM
+builds are kept side by side rather than overwritten. <code>pygetm_git_commit</code> is
+best-effort (walks up from the installed package's <code>__file__</code> looking for a
+<code>.git</code> directory) and is empty for a normal, non-editable install — not
+fabricated when unavailable.</p>
+<h2 id="every-choicespec-keeps-every-alternative-present-always">Every <code>ChoiceSpec</code> keeps every alternative present, always</h2>
+<p>Originally built only for <code>pygetm_config.providers</code> (a config needed to keep
+<code>meteo.ERA5:</code> and <code>meteo.CMIP6:</code> both present so a different run-folder could
+switch <code>source:</code> without deleting/retyping a block), but generalized to
+EVERY <code>ChoiceSpec</code> in the schema after the same question came up for the
+core schema too: why should <code>simulation.vertical_coordinates</code> behave any
+differently? So <code>vertical_coordinates</code>, <code>radiation</code>, <code>domain</code>, the
+<code>output.files</code> per-file type choice — all of them — keep every alternative's
+fields present at once, each under its own <code>&lt;label&gt;:</code> sub-key, with only the
+top-level <code>type:</code>/<code>source:</code> field picking which is active:</p>
+<div class="codehilite"><pre><span></span><code><span class="nt">simulation</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">vertical_coordinates</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">GVC</span>
+<span class="w">    </span><span class="nt">Sigma</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">ddu</span><span class="p">:</span><span class="w"> </span><span class="nv">0.0</span><span class="p p-Indicator">,</span><span class="nt"> ddl</span><span class="p">:</span><span class="w"> </span><span class="nv">0.0</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">...</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="nt">GVC</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">nz</span><span class="p">:</span><span class="w"> </span><span class="nv">40</span><span class="p p-Indicator">,</span><span class="nt"> ddu</span><span class="p">:</span><span class="w"> </span><span class="nv">0.75</span><span class="p p-Indicator">,</span><span class="nt"> ddl</span><span class="p">:</span><span class="w"> </span><span class="nv">0.75</span><span class="p p-Indicator">,</span><span class="nt"> Dgamma</span><span class="p">:</span><span class="w"> </span><span class="nv">10.0</span><span class="p p-Indicator">,</span><span class="nt"> gamma_surf</span><span class="p">:</span><span class="w"> </span><span class="nv">true</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="nt">Adaptive</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">nz</span><span class="p">:</span><span class="w"> </span><span class="nv">40</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">...many more...</span><span class="p p-Indicator">}</span>
+</code></pre></div>
+
+<p>Switching <code>type: GVC</code> to <code>type: Adaptive</code> needs no other edit — <code>Adaptive:</code>'s
+own values are already there. This makes a generated template genuinely a
+complete "global" reference document (every strategy's every param, for
+every slot, always present) rather than one path picked with the rest
+commented out as a note. Frontends (<code>session.py</code>/<code>frontends/textual_app.py</code>)
+only ever render the currently-active choice's fields, so this costs nothing
+in screen space despite the file always carrying everything.</p>
+<p><code>yaml_parse.validate_config</code> reads whichever <code>&lt;label&gt;:</code> sub-key matches the
+active discriminator, validates only that one, and preserves every other
+sub-key's block verbatim (unvalidated — it may reference a different,
+unrelated shape) in the output. It falls back to the old flat form
+(<code>type: GVC, nz: 40, ...</code> with no nested <code>GVC:</code> sub-key at all) for backward
+compatibility with configs written before this convention existed — nothing
+already written breaks. <code>loader.py</code> needed zero changes for any of this: it
+only ever consumes <code>validate_config</code>'s already-flattened output, never the
+raw YAML shape.</p>
+<h2 id="a-tour-of-one-real-config-nse_from_oceanicuyaml">A tour of one real config: <code>nse_from_oceanicu.yaml</code></h2>
+<p>This file (and its driver, <code>oceanicu_driver.py</code>) live in the OceanICU repo, not
+here — <code>OceanICU/oceanicu_3d/NSe/config/nse_from_oceanicu.yaml</code> — since
+they're genuinely OceanICU-specific, unlike everything else this doc covers.
+Every section below actually exists in the current schema (<code>build_schema()</code>
+against live pygetm 0.9.28, verified while writing this doc) and is used, in
+this order, by that file:</p>
+<table>
+<thead>
+<tr>
+<th>Section key</th>
+<th>Node kind</th>
+<th>What it is</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>domain</code></td>
+<td>ChoiceSpec</td>
+<td>Build a <code>Domain</code> — <code>create_cartesian</code>/<code>create_spherical</code>/<code>create_spherical_at_resolution</code>/<code>Domain</code> itself (the general path), <strong>or</strong> <code>BathymetryFile</code> (<code>method: BathymetryFile</code>), a pygetm-config convenience for the common "read a pre-prepared bathymetry NetCDF" case (path + variable names + mask convention) — unified into one ChoiceSpec (previously two separate sections, <code>domain:</code>/<code>bathymetry:</code>; see <code>loader.build_domain</code>). This is what <code>nse_from_oceanicu.yaml</code> actually uses.</td>
+</tr>
+<tr>
+<td><code>open_boundaries</code></td>
+<td>CollectionSpec</td>
+<td>Boundary positions + condition types, one entry per <code>add_by_index</code> call — <code>nse_from_oceanicu.yaml</code>'s 9 entries, converted verbatim from OceanICU's <code>cfg_boundaries.py</code>.</td>
+</tr>
+<tr>
+<td><code>rivers</code></td>
+<td>CollectionSpec</td>
+<td>River <em>positions</em> added by name/location — distinct from <code>river_discharge</code>, a provider-registry role for <em>where the discharge data itself comes from</em> (see <a href="providers.html"><code>docs/providers.md</code></a>). Empty in this example; positions come dynamically from <code>oceanicu_driver.py</code>'s <code>add_rivers</code>.</td>
+</tr>
+<tr>
+<td><code>simulation</code> + 6 sub-sections</td>
+<td>ObjectSpec/ChoiceSpec</td>
+<td><code>runtype</code>/<code>Dcrit</code>/<code>Dmin</code> plus pluggable strategy slots (<code>vertical_coordinates</code>, <code>internal_pressure</code>, <code>airsea</code>, <code>vertical_mixing</code>, <code>radiation</code>) and two plain object sections (<code>momentum</code>, <code>density</code>).</td>
+</tr>
+<tr>
+<td><code>runtime</code></td>
+<td>ObjectSpec</td>
+<td><code>timestep</code>/<code>split_factor</code>/<code>time</code> (start) plus the <code>switches.*</code> booleans (<code>dump_on_error</code>, <code>profile</code>, <code>check_finite</code>) — deliberately excludes <code>stop</code>, since start/stop are per-invocation (<code>--start</code>/<code>--stop</code>), not part of a reusable setup.</td>
+</tr>
+<tr>
+<td><code>data_assignments</code></td>
+<td>CollectionSpec</td>
+<td>"Set this field to this constant/file" entries — not used in this example (the physics fields here are all left at their strategy-object defaults).</td>
+</tr>
+<tr>
+<td><code>output</code> + <code>output.files</code> + <code>output.variable_request</code></td>
+<td>ObjectSpec/CollectionSpec</td>
+<td><code>output.folder</code> (shared directory prefix) plus one entry per output file with its variable list inlined.</td>
+</tr>
+</tbody>
+</table>
+<p>This file also has real, schema-validated <code>hydrography:</code>/<code>boundaries:
+{barotropic, baroclinic}</code>/<code>meteo:</code>/<code>river_discharge:</code> sections — provider
+roles registered by <code>OceanICU/oceanicu_3d/driver/oceanicu_providers.py</code>
+(discovered via <code>PYGETM_CONFIG_PROVIDERS</code>, which <code>oceanicu_driver.py</code> sets
+automatically) — see <a href="providers.html"><code>docs/providers.md</code></a> for the full contract and the
+nested-by-label convention these (and every other <code>ChoiceSpec</code>) now use.</p>
+<h2 id="the-lifecycle-for-a-brand-new-project-not-just-oceanicu">The lifecycle for a brand-new project (not just OceanICU)</h2>
+<ol>
+<li><strong>Get a schema snapshot.</strong> In any pygetm-capable environment:
+   <code>pygetm-config dump -o schema.json</code> (or just call <code>build_schema()</code> directly
+   in Python if you're staying in that environment).</li>
+<li><strong>Generate a starting template.</strong> <code>pygetm-config template -o config.yaml
+   --tier basic</code> gives a config with every BASIC-tier field present (commented
+   guidance for ADVANCED/EXPERT fields, per <code>--tier</code>/<code>--hide-expert</code>).</li>
+<li><strong>Fill it in</strong>, either by hand or via <code>pygetm-config edit --schema
+   schema.json config.yaml</code> (the Textual TUI — works with zero pygetm
+   installed, see above).</li>
+<li><strong>Decide what's genuinely bespoke.</strong> Most setups need nothing beyond the
+   YAML — <a href="yaml-vs-python.html"><code>docs/yaml_vs_python.md</code></a> walks through exactly which real OceanICU
+   code turned out to be pure data (boundary positions, even the
+   previously-thought-bespoke bathymetry-file reading, now <code>domain:</code>'s own
+   <code>BathymetryFile</code> choice) vs.
+   genuinely needing a driver script (OceanICU's dynamic, threshold-filtered
+   river loading). If your setup needs the latter, write a small driver
+   script that calls <code>loader.build_domain</code>/<code>add_rivers</code>/etc. individually
+   instead of <code>run_from_config</code> — see
+   <code>OceanICU/oceanicu_3d/driver/oceanicu_driver.py</code> (a separate repo) for the
+   pattern: every <code>loader.py</code> function takes an already-built <code>domain</code>/<code>sim</code>
+   as an argument rather than constructing it internally, so a bespoke first
+   step doesn't force you to reimplement everything downstream of it too.</li>
+<li><strong>If you need your own data-provenance vocabulary</strong> (where does forcing
+   data actually live, per source) rather than OceanICU's, register a
+   <code>pygetm_config.providers</code> entry point — see <a href="providers.html"><code>docs/providers.md</code></a> for the
+   full contract and two real worked examples (OceanICU's, and a second,
+   unrelated hypothetical project's, proving the mechanism itself carries no
+   OceanICU assumptions).</li>
+<li><strong>Validate and run.</strong> <code>pygetm-config validate config.yaml</code> to check without
+   running anything; <code>pygetm-config run config.yaml --stop ...</code> to actually
+   run it, with <code>--print-config</code>/<code>--list-output</code>/<code>--plot-domain</code>/<code>--dry-run</code>
+   available for debugging before committing to a full run (see <code>README.md</code>'s
+   flag list, mirroring the spirit of OceanICU's own <code>run_model.py</code> CLI
+   overrides but with a project-agnostic generic <code>--set KEY=VALUE</code> instead of
+   per-project flags).</li>
+</ol>
+<h2 id="whats-still-explicitly-out-of-scope">What's still explicitly out of scope</h2>
+<ul>
+<li><strong><code>pre_transform_expression</code></strong> (an arbitrary-string unit-conversion escape
+  hatch the schema documents as schema-only intent): the loader raises
+  <code>LoaderError</code> rather than evaluating it — running an arbitrary string
+  sourced from a YAML config file is a real code-execution risk even with a
+  restricted <code>eval()</code>. Not a gap to be closed casually; would need a real
+  sandboxing story first.</li>
+<li><strong><code>DataSourceSpec.role="domain_grid_field"</code></strong>: <code>Domain</code>'s raw array-typed
+  constructor parameters (<code>H</code>, <code>mask</code>, <code>lon</code>, <code>lat</code>, ...) have no
+  <code>InputManager</code> available yet at construction time in pyGETM itself, so this
+  is schema-only intent for a future loader capability, not something that
+  runs today (<code>domain:</code>'s own <code>BathymetryFile</code> choice covers the common
+  sub-case of this directly, via its own bespoke NetCDF-reading code in
+  <code>loader.py</code>, without needing this general pathway).</li>
+<li><strong>Auto-deriving <code>data_assignments:</code> entries from a provider choice</strong>:
+  <code>providers.py</code> gets you a validated "where does this data live" answer
+  (<code>source: ERA5, folder: ...</code>); turning THAT into the concrete per-field
+  <code>data_assignments:</code> entries (file path + variable name + any unit
+  conversion, one per required field) is not automated -- you write them by
+  hand, once per setup, same as <code>nse_from_oceanicu.yaml</code> now does for its
+  meteo forcing. The underlying mechanism those entries use
+  (<code>kind: file</code> + <code>pre_transform_scale</code>/<code>pre_transform_offset</code>, resolving to a
+  real <code>pygetm.input.from_nc(...)</code> call) already works today, verified against
+  real ERA5 files -- see <a href="yaml-vs-python.html"><code>docs/yaml_vs_python.md</code></a>.</li>
+<li><strong><code>pygetm-config</code> stays independent of <code>ocean-stack</code>.</strong> OceanICU's own
+  <code>driver/oceanicu_driver.py</code> does import <code>pygetm_config</code> directly and depends
+  on it being importable in its environment, but <code>pygetm-config</code> is still
+  deliberately not wired into <code>ocean-stack</code>'s own <code>environment.yml</code> or any
+  other repo's dependency list -- see <code>PLAN.md</code>'s "Repo placement" section for
+  why.</li>
+</ul></article></div></main>
+<footer class="foot"><div class="footin"><img src="./assets/logo_stacked.png" alt="Bolding &amp; Bruggeman">
+<div><p>Bolding &amp; Bruggeman · <a href="https://www.bolding-bruggeman.com">www.bolding-bruggeman.com</a> ·
+<a href="https://bolding.github.io/ocean-docs/">ocean-* documentation</a> · <a href="https://bolding.github.io/nesting-docs/">pyGETM nesting</a></p>
+<p>Generated from the pygetm-config documentation on 18 November 2026. pygetm-config itself is not public yet.</p></div></div></footer>
+</body></html>

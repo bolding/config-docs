@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>examples/generic_project_providers.py · pygetm-config</title>
+<meta name="description" content="Example file from pygetm-config">
+<link rel="icon" href="../assets/logo_stacked.png">
+<link rel="stylesheet" href="../assets/style.css"><link rel="stylesheet" href="../assets/code.css"></head>
+<body>
+<header class="topbar"><div class="topin"><a class="brand" href="../index.html"><img src="../assets/logo_wide.png" alt="Bolding &amp; Bruggeman"><span>pygetm-config</span></a>
+<nav aria-label="Sections"><a href="../index.html">Overview</a><a href="../getting-started.html">Getting started</a><a href="../full-picture.html">The full picture</a><a href="../yaml-vs-python.html">YAML or Python</a><a href="../providers.html">Providers</a><a href="../nesting.html">Nested setups</a><a href="../examples.html" aria-current="page">Examples</a></nav></div></header>
+<section class="band"><div class="bandin"><h1>examples/generic_project_providers.py</h1><p>Example file from pygetm-config</p></div></section>
+<main><div class="layout single"><article class="doc"><div class="codehilite"><pre><span></span><code><span class="sd">&quot;&quot;&quot;A SECOND, deliberately different, hypothetical project&#39;s `pygetm_config.providers`</span>
+<span class="sd">registry (FURTHER item 7: &quot;How will the Data provenance work for a different</span>
+<span class="sd">project?... depending on the e.g. meteo source the paths and names will be</span>
+<span class="sd">different&quot;). Not OceanICU -- a made-up coastal setup (&quot;CoastalApp&quot;) using</span>
+<span class="sd">different upstream data sources entirely, to prove the extension point in</span>
+<span class="sd">providers.py carries no OceanICU assumptions: nothing in `make_provider_slot`/</span>
+<span class="sd">`discover_provider_sections` cares what a project calls its providers or what</span>
+<span class="sd">extra params they need.</span>
+
+<span class="sd">Contrast with OceanICU&#39;s real registry</span>
+<span class="sd">(`OceanICU/oceanicu_3d/driver/oceanicu_providers.py`, a separate repo --</span>
+<span class="sd">not shipped here, since it&#39;s genuinely project-specific rather than the kind of</span>
+<span class="sd">generic material this repo&#39;s own examples/ should hold):</span>
+<span class="sd">- meteo: GFS (global, 0.25deg forecast/analysis grib-&gt;nc, cycle-based) instead of</span>
+<span class="sd">  ERA5 (reanalysis) -- different extra params (`cycle_hour`, `forecast_hours`)</span>
+<span class="sd">  because the underlying data has a genuinely different shape (GFS is issued in</span>
+<span class="sd">  discrete forecast cycles; ERA5 is a continuous hourly reanalysis archive).</span>
+<span class="sd">- boundaries: HYCOM (a single global ocean reanalysis covering both barotropic</span>
+<span class="sd">  and baroclinic fields) instead of OceanICU&#39;s split TPXO-for-tides/</span>
+<span class="sd">  CMEMS-for-everything-else -- so this project needs only ONE boundaries role,</span>
+<span class="sd">  not two.</span>
+<span class="sd">- No river_discharge role at all -- this hypothetical setup has no open rivers.</span>
+
+<span class="sd">This module&#39;s `meteo` role deliberately reuses the SAME role name as</span>
+<span class="sd">OceanICU&#39;s real registry&#39;s `meteo` role -- realistically, two unrelated</span>
+<span class="sd">projects&#39; &quot;where does weather forcing come from&quot; role would often get the same</span>
+<span class="sd">obvious name. In practice you install exactly one project&#39;s provider package</span>
+<span class="sd">into the environment you build that project&#39;s schema in (see providers.py&#39;s</span>
+<span class="sd">&quot;consuming project&quot; framing -- this was never meant to support multiple</span>
+<span class="sd">unrelated projects&#39; registries live in one environment at once). If you DID</span>
+<span class="sd">try to install both, `discover_provider_sections()`&#39;s existing</span>
+<span class="sd">conflict-detection (see `tests/test_providers_extension_point.py::</span>
+<span class="sd">test_discover_provider_sections_conflict_raises`) catches a `meteo` collision</span>
+<span class="sd">loudly rather than silently letting one project&#39;s registry shadow the other&#39;s</span>
+<span class="sd">-- proven concretely (this registry plus a second synthetic one) in</span>
+<span class="sd">`tests/test_provider_registry_example.py::</span>
+<span class="sd">test_two_projects_with_same_role_name_collide_loudly`. This registry works</span>
+<span class="sd">correctly on its own in a single-project build_schema() call, per</span>
+<span class="sd">`test_build_schema_discovers_coastalapp_providers`.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">from</span> <span class="nn">__future__</span> <span class="kn">import</span> <span class="n">annotations</span>
+
+<span class="kn">from</span> <span class="nn">pygetm_config.model</span> <span class="kn">import</span> <span class="n">ChoiceSpec</span><span class="p">,</span> <span class="n">Importance</span><span class="p">,</span> <span class="n">ParameterSpec</span><span class="p">,</span> <span class="n">TypeRef</span>
+<span class="kn">from</span> <span class="nn">pygetm_config.providers</span> <span class="kn">import</span> <span class="n">make_provider_slot</span>
+
+
+<span class="k">def</span> <span class="nf">register_coastalapp_providers</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ChoiceSpec</span><span class="p">]:</span>
+    <span class="n">meteo</span> <span class="o">=</span> <span class="n">make_provider_slot</span><span class="p">(</span>
+        <span class="s2">&quot;meteo&quot;</span><span class="p">,</span>
+        <span class="p">{</span>
+            <span class="s2">&quot;GFS&quot;</span><span class="p">:</span> <span class="p">(</span>
+                <span class="n">ParameterSpec</span><span class="p">(</span>
+                    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;cycle_hour&quot;</span><span class="p">,</span>
+                    <span class="nb">type</span><span class="o">=</span><span class="n">TypeRef</span><span class="p">(</span><span class="n">kind</span><span class="o">=</span><span class="s2">&quot;scalar&quot;</span><span class="p">,</span> <span class="n">scalar_type</span><span class="o">=</span><span class="s2">&quot;int&quot;</span><span class="p">),</span>
+                    <span class="n">default</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+                    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;forecast cycle to use (0/6/12/18 UTC)&quot;</span><span class="p">,</span>
+                    <span class="n">importance</span><span class="o">=</span><span class="n">Importance</span><span class="o">.</span><span class="n">BASIC</span><span class="p">,</span>
+                <span class="p">),</span>
+                <span class="n">ParameterSpec</span><span class="p">(</span>
+                    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;forecast_hours&quot;</span><span class="p">,</span>
+                    <span class="nb">type</span><span class="o">=</span><span class="n">TypeRef</span><span class="p">(</span><span class="n">kind</span><span class="o">=</span><span class="s2">&quot;scalar&quot;</span><span class="p">,</span> <span class="n">scalar_type</span><span class="o">=</span><span class="s2">&quot;int&quot;</span><span class="p">),</span>
+                    <span class="n">default</span><span class="o">=</span><span class="mi">384</span><span class="p">,</span>
+                    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;how many forecast hours to pull per cycle&quot;</span><span class="p">,</span>
+                    <span class="n">importance</span><span class="o">=</span><span class="n">Importance</span><span class="o">.</span><span class="n">ADVANCED</span><span class="p">,</span>
+                <span class="p">),</span>
+            <span class="p">),</span>
+        <span class="p">},</span>
+        <span class="n">default</span><span class="o">=</span><span class="s2">&quot;GFS&quot;</span><span class="p">,</span>
+    <span class="p">)</span>
+
+    <span class="n">boundaries</span> <span class="o">=</span> <span class="n">make_provider_slot</span><span class="p">(</span>
+        <span class="s2">&quot;boundaries&quot;</span><span class="p">,</span>
+        <span class="p">{</span>
+            <span class="s2">&quot;HYCOM&quot;</span><span class="p">:</span> <span class="p">(</span>
+                <span class="n">ParameterSpec</span><span class="p">(</span>
+                    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;experiment&quot;</span><span class="p">,</span>
+                    <span class="nb">type</span><span class="o">=</span><span class="n">TypeRef</span><span class="p">(</span><span class="n">kind</span><span class="o">=</span><span class="s2">&quot;scalar&quot;</span><span class="p">,</span> <span class="n">scalar_type</span><span class="o">=</span><span class="s2">&quot;str&quot;</span><span class="p">),</span>
+                    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;HYCOM experiment/run identifier, e.g. &#39;GLBy0.08/expt_93.0&#39;&quot;</span><span class="p">,</span>
+                    <span class="n">importance</span><span class="o">=</span><span class="n">Importance</span><span class="o">.</span><span class="n">BASIC</span><span class="p">,</span>
+                <span class="p">),</span>
+            <span class="p">),</span>
+        <span class="p">},</span>
+        <span class="n">default</span><span class="o">=</span><span class="s2">&quot;HYCOM&quot;</span><span class="p">,</span>
+    <span class="p">)</span>
+
+    <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;meteo&quot;</span><span class="p">:</span> <span class="n">meteo</span><span class="p">,</span> <span class="s2">&quot;boundaries&quot;</span><span class="p">:</span> <span class="n">boundaries</span><span class="p">}</span>
+</code></pre></div></article></div></main>
+<footer class="foot"><div class="footin"><img src="../assets/logo_stacked.png" alt="Bolding &amp; Bruggeman">
+<div><p>Bolding &amp; Bruggeman · <a href="https://www.bolding-bruggeman.com">www.bolding-bruggeman.com</a> ·
+<a href="https://bolding.github.io/ocean-docs/">ocean-* documentation</a> · <a href="https://bolding.github.io/nesting-docs/">pyGETM nesting</a></p>
+<p>Generated from the pygetm-config documentation on 18 November 2026. pygetm-config itself is not public yet.</p></div></div></footer>
+</body></html>
